@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.1.1 (2026-09-25)
+
+### Fixed
+- **Esc closes Burn Bar, not the terminal under it.** Fred: *"sometimes that
+  ESC goes to the terminal or herdr under it."* The shell's keyboard panel grabs
+  the keys for a moment and then lets Hyprland take them back on demand, so the
+  window beneath could end up with the keyboard while the panel was still open.
+  The panel now notices when it loses the keyboard while open and takes it back.
+
 ## 2.1.0 (2026-09-20)
 
 Guidance. Burn Bar told you where you stood; now it tells you what to do.

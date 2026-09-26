@@ -1753,6 +1753,25 @@ Panel {
       anchors.fill: parent
       blocked: modelPicker.popupOpen
       onCloseRequested: panel.widget.close()
+
+      // Fred, 2026-09-25: "sometimes that ESC goes to the terminal or herdr
+      // under it." KeyboardPanel grabs the keyboard Exclusive for 75ms and then
+      // settles on OnDemand, and Hyprland can hand an OnDemand layer's focus
+      // back to the window beneath it while the panel is still up. A click
+      // outside closes the panel before this runs, so while we are open any
+      // focus loss is theft: prime Exclusive again and take the keys back.
+      readonly property bool windowActive: Window.active
+      onWindowActiveChanged: if (!windowActive) refocusTimer.restart()
+      Timer {
+        id: refocusTimer
+        interval: 30
+        onTriggered: {
+          if (!panel.opened || keyCatcher.windowActive) return
+          kpanel.focusPrimed = false
+          kpanel.beginFocusPrime()
+          keyCatcher.forceActiveFocus()
+        }
+      }
       onTabRequested: direction => panel.switchPanel(direction)
       onTextKey: function(text) {
         if (text === "r" || text === "R") panel.refreshAll()

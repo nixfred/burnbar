@@ -1304,6 +1304,7 @@ BarWidget {
   property real driftPhase: 0
 
   Timer {
+    id: emberClock
     // 20fps while something is burning, 5fps when nothing is: the idle swell is
     // a slow drift and does not need frame-accurate updates on battery.
     readonly property bool resting: root.idle && !root.localActive
@@ -1315,7 +1316,52 @@ BarWidget {
       // frame rate drops: only the smoothness changes.
       root.emberPhase = (root.emberPhase + (resting ? 0.56 : 0.14)) % (Math.PI * 2)
       root.driftPhase = (root.driftPhase + (resting ? 0.050 : 0.0125)) % (Math.PI * 2)
+      // Already repainting at 20fps, so the pulses ride this tick instead of
+      // adding frames of their own in between.
+      if (!resting && root.pulseDemand > 0) root.pulseMs += interval
     }
+  }
+
+  // ── pulse clock ───────────────────────────────────────────────────────────
+  // The heartbeats (live cell, quota at 90%, the over-pace chip, the local
+  // core) were each an Animation.Infinite, and a running Animation asks for a
+  // new frame on every vsync of every screen the bar is on: 120fps on a 120Hz
+  // panel, for a ring that breathes once every 1.8s. Measured on a three-screen
+  // bar, the live ring alone held the shell at ~50% of a core against ~18%
+  // without it. They now read one shared clock at 10fps (20fps while the
+  // embers are already running), which a breath that slow cannot tell apart.
+  // Each pulse holds a ticket while it is on screen and the clock only runs
+  // while someone holds one, so a quiet strip still costs nothing.
+  property int pulseDemand: 0
+  // Monotonic milliseconds rather than a wrapped phase: every pulse has its own
+  // period, and taking the modulo per consumer keeps each one seamless.
+  property real pulseMs: 0
+
+  Timer {
+    interval: 100
+    running: root.pulseDemand > 0 && root.visible && !(emberClock.running && !emberClock.resting)
+    repeat: true
+    onTriggered: root.pulseMs += interval
+  }
+
+  // Eased from `from` to `to` and back over periodMs, starting at `from`. The
+  // cosine is the smooth ease the InOutQuad pairs approximated.
+  function pulse(periodMs, from, to) {
+    var t = (root.pulseMs % periodMs) / periodMs
+    return from + (to - from) * (0.5 - 0.5 * Math.cos(2 * Math.PI * t))
+  }
+
+  component PulseTicket: QtObject {
+    property bool active: false
+    property bool held: false
+    function sync() {
+      if (active === held) return
+      root.pulseDemand += active ? 1 : -1
+      held = active
+    }
+    onActiveChanged: sync()
+    Component.onCompleted: sync()
+    Component.onDestruction: if (held) root.pulseDemand -= 1
   }
 
   property real claudeFlash: 0
@@ -1506,14 +1552,9 @@ BarWidget {
           color: "transparent"
           border.color: root.whiteHot
           border.width: Style.spaceReal(1)
-          opacity: 0
-          SequentialAnimation on opacity {
-            running: liveRing.visible
-            loops: Animation.Infinite
-            onRunningChanged: if (!running) liveRing.opacity = 0
-            NumberAnimation { to: 0.55; duration: 900; easing.type: Easing.InOutQuad }
-            NumberAnimation { to: 0.0; duration: 900; easing.type: Easing.InOutQuad }
-          }
+          // Visibility first, so a hidden ring never subscribes to the clock.
+          opacity: visible ? root.pulse(1800, 0, 0.55) : 0
+          readonly property PulseTicket ticket: PulseTicket { active: liveRing.visible }
         }
       }
     }
@@ -1562,15 +1603,11 @@ BarWidget {
 
       // Quota nearly gone gets its own heartbeat; you should not have to read
       // a number to learn you are about to be cut off. Gated on the gauge
-      // actually being on screen, and the fill is restored to full when the
-      // beat stops so a quota that drops under 90% mid-pulse is not left dim.
-      SequentialAnimation on opacity {
-        running: !gauge.unknown && gauge.percent >= 0.9 && gauge.visible && root.visible
-        loops: Animation.Infinite
-        onRunningChanged: if (!running) fill.opacity = 1
-        NumberAnimation { to: 0.35; duration: 700; easing.type: Easing.InOutQuad }
-        NumberAnimation { to: 1.0; duration: 700; easing.type: Easing.InOutQuad }
-      }
+      // actually being on screen, and the fill sits at full whenever the beat
+      // is off so a quota that drops under 90% mid-pulse is not left dim.
+      readonly property bool beating: !gauge.unknown && gauge.percent >= 0.9 && gauge.visible && root.visible
+      opacity: beating ? root.pulse(1400, 1.0, 0.35) : 1
+      readonly property PulseTicket ticket: PulseTicket { active: fill.beating }
     }
 
     // Where an even spend would have you by now. The gap between this tick and
@@ -1653,14 +1690,10 @@ BarWidget {
         color: root.stripChip.color
         border.width: 0
 
-        SequentialAnimation on opacity {
-          // Only a warning pulses. Advice sits still: it is an offer, not an alarm.
-          running: overChip.visible && root.visible && root.stripChip.advice !== true
-          loops: Animation.Infinite
-          onRunningChanged: if (!running) pill.opacity = 1
-          NumberAnimation { to: 0.55; duration: 900; easing.type: Easing.InOutQuad }
-          NumberAnimation { to: 1.0; duration: 900; easing.type: Easing.InOutQuad }
-        }
+        // Only a warning pulses. Advice sits still: it is an offer, not an alarm.
+        readonly property bool beating: overChip.visible && root.visible && root.stripChip.advice !== true
+        opacity: beating ? root.pulse(1800, 1.0, 0.55) : 1
+        readonly property PulseTicket ticket: PulseTicket { active: pill.beating }
       }
 
       Text {
@@ -2154,24 +2187,15 @@ BarWidget {
             border.width: 0
             Behavior on color { ColorAnimation { duration: 260 } }
 
-            // Both loops are gated on the lane actually being shown, and each
-            // puts its property back when it stops; a stopped animation
-            // leaves whatever value it was mid-way through.
-            SequentialAnimation on scale {
-              running: root.localActive && root.visible && root.showLocal
-              loops: Animation.Infinite
-              onRunningChanged: if (!running) coreDot.scale = 1
-              NumberAnimation { to: 1.16; duration: 480; easing.type: Easing.InOutSine }
-              NumberAnimation { to: 0.94; duration: 480; easing.type: Easing.InOutSine }
-            }
+            // Both beats are gated on the lane actually being shown, and each
+            // property sits at rest whenever its beat is off.
+            readonly property bool throbbing: root.localActive && root.visible && root.showLocal
+            scale: throbbing ? root.pulse(960, 0.94, 1.16) : 1
+            readonly property PulseTicket throbTicket: PulseTicket { active: coreDot.throbbing }
             // Offline is a fault, and faults strobe rather than breathe.
-            SequentialAnimation on opacity {
-              running: !root.localOnline && root.visible && root.showLocal
-              loops: Animation.Infinite
-              onRunningChanged: if (!running) coreDot.opacity = 1
-              NumberAnimation { to: 0.25; duration: 620; easing.type: Easing.InOutQuad }
-              NumberAnimation { to: 1.0; duration: 620; easing.type: Easing.InOutQuad }
-            }
+            readonly property bool strobing: !root.localOnline && root.visible && root.showLocal
+            opacity: strobing ? root.pulse(1240, 1.0, 0.25) : 1
+            readonly property PulseTicket strobeTicket: PulseTicket { active: coreDot.strobing }
           }
 
           // Hollow centre, so the core reads as a reactor and not a dot.

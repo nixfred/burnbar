@@ -1,5 +1,28 @@
 # Changelog
 
+## 2.2.0 (2026-09-25)
+
+Thanks [@ianswope](https://github.com/ianswope) for this one (PR #2).
+
+### Changed
+- **The heartbeats no longer redraw the bar at the monitor's refresh rate.** The
+  live-cell ring, the 90% quota beat, the over-pace chip and the local core's
+  throb and strobe were each an `Animation.Infinite`, and a running Animation
+  asks for a new frame on every vsync of every screen the bar is on: 120fps on a
+  120Hz panel, for a ring that breathes once every 1.8s, and the live ring runs
+  whenever any agent is burning. They now read one shared pulse clock at 10fps,
+  or ride the ember timer's 20fps tick when the embers are already running. Each
+  pulse holds a ticket while it is on screen and the clock only runs while
+  someone holds one, so a quiet strip still costs nothing. Same periods, same
+  ranges, same gating; a stopped beat now sits at rest through a binding instead
+  of an `onRunningChanged` reset.
+- Measured on a three-screen bar (3200x2000@120 plus two 1080p@75, Intel iGPU),
+  shell CPU after a fresh restart, stock and patched interleaved: stock 45 to 57%
+  of a core, patched 12 to 26%. A QML profile of the patched strip shows its
+  JavaScript at 18ms in 30s; what remains is the shell's ordinary per-frame work.
+- The rising sparks are untouched: they move, and would step visibly at 10fps.
+  They already sit behind the `sparks` setting.
+
 ## 2.1.1 (2026-09-25)
 
 ### Fixed

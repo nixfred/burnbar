@@ -581,6 +581,38 @@ BURNBAR_EXTRA_HOMES=" $other : $other/. : $tmp/does-not-exist : $tmp/other-link 
 [ "$(jq -r '.claude.total' "$out")" = "$(( cl_before + 1600 ))" ] \
   || fail "claude changed under a repeated root: $(jq -r '.claude.total' "$out")"
 ok "roots are stripped, missing roots are absent, a repeated root counts once"
+# ── zcode: one line per completed model request ──────────────────────────────
+# ~/.zcode/cli/rollout/model-io-sess_*.jsonl. Per-request usage (no cumulative
+# counter, no streamed revisions), so what the line says is what the lane
+# counts: input + cache-write + output in the heat, cache reads carried in the
+# split but excluded, model attributed from the line itself. Placed in the
+# mirror only, to prove BURNBAR_EXTRA_HOMES carries the zcode root too.
+zcode_dir="$other/.zcode/cli/rollout"
+mkdir -p "$zcode_dir"
+zc="$zcode_dir/model-io-sess_fixture.jsonl"
+printf '{"completedAt":"%s","requestId":"req_z1","attempt":1,"model":{"modelId":"glm-5.3"},"response":{"usage":{"inputTokens":400,"outputTokens":150,"totalTokens":550,"cacheReadTokens":300,"cacheWriteTokens":50}}}\n' \
+  "$now_iso" > "$zc"
+printf '{"completedAt":"%s","requestId":"req_z2","attempt":1,"model":{"modelId":"qwen3.8-27b"},"response":{"usage":{"inputTokens":100,"outputTokens":20,"totalTokens":120}}}\n' \
+  "$now_iso" >> "$zc"
+# A record whose usage is not counts is skipped, not fatal.
+printf '{"completedAt":"%s","requestId":"req_z3","attempt":1,"model":{"modelId":"glm-5.3"},"response":{"usage":{"inputTokens":"unknown","outputTokens":1}}}\n' \
+  "$now_iso" >> "$zc"
+BURNBAR_EXTRA_HOMES="$other" BURNBAR_METER_JOURNAL="$tmp/journal-empty.txt" \
+  HOME="$fake_home" GROK_HOME="$fake_home/.grok" python3 bin/burnbar-collect --window 360 --buckets 12
+jq -e '.zcode.total == 720 and .zcode.turns == 2 and .zcode.sessions == 1
+  and .zcode.byModel["glm-5.3"] == 600 and .zcode.byModel["qwen3.8-27b"] == 120
+  and .zcode.split.input == 500 and .zcode.split.cacheWrite == 50
+  and .zcode.split.output == 170 and .zcode.split.cacheRead == 300
+  and .presence.zcode == true' "$out" >/dev/null \
+  || fail "zcode lane wrong: $(jq -c '.zcode' "$out")"
+ok "zcode counts per-request usage; cache reads stay out of the heat"
+
+# Without the env, the mirror's zcode root is absent and so is the lane.
+BURNBAR_METER_JOURNAL="$tmp/journal-empty.txt" \
+  HOME="$fake_home" GROK_HOME="$fake_home/.grok" python3 bin/burnbar-collect --window 360 --buckets 12
+jq -e '.zcode.total == 0 and .presence.zcode == false' "$out" >/dev/null \
+  || fail "zcode counted without the extra home: $(jq -c '.zcode' "$out")"
+ok "an unnamed zcode mirror contributes nothing"
 
 # A machine that only has Grok must not claim Claude or Codex are present.
 grok_only="$tmp/grok-only"

@@ -78,7 +78,7 @@ BarWidget {
   readonly property bool showClaude: (svc ? svc.claudePresent : false) && focusOk("claude")
   readonly property bool showCodex: (svc ? svc.codexPresent : false) && focusOk("codex")
   readonly property bool showGrok: (svc ? svc.grokPresent : false) && focusOk("grok")
-  readonly property int cloudAgents: (showClaude ? 1 : 0) + (showCodex ? 1 : 0) + (showGrok ? 1 : 0) + (showKimi ? 1 : 0)
+  readonly property int cloudAgents: (showClaude ? 1 : 0) + (showCodex ? 1 : 0) + (showGrok ? 1 : 0) + (showKimi ? 1 : 0) + (showZcode ? 1 : 0)
   readonly property bool grokExtra: showGrok && showClaude && showCodex
   readonly property bool grokAsRight: showGrok && showClaude && !showCodex
   readonly property bool grokAsLeft: showGrok && !showClaude && showCodex
@@ -88,6 +88,11 @@ BarWidget {
   // no change at all. It sits beside Grok as a second narrow band.
   readonly property bool showKimi: (svc ? svc.kimiPresent : false) && focusOk("kimi")
   readonly property bool kimiExtra: showKimi && showClaude && showCodex
+  // Zcode has a store of its own, so presence is simply "a rollout exists";
+  // like Kimi it takes the narrow band only when the mirrored pair fills
+  // the strip.
+  readonly property bool showZcode: (svc ? svc.zcodePresent : false) && focusOk("zcode")
+  readonly property bool zcodeExtra: showZcode && showClaude && showCodex
   // The narrowest strip that still gives every cell a whole pixel and a gap.
   // A configured width below it is raised rather than honoured: overlapping
   // cells are a heat map of nothing.
@@ -408,6 +413,7 @@ BarWidget {
   readonly property int zoneGrok: 2
   readonly property int zoneLocal: 3
   readonly property int zoneKimi: 4
+  readonly property int zoneZcode: 5
 
   property int hoverZone: zoneNone
   // The bar only offers a tooltip to a target that reports itself hovered, and
@@ -418,6 +424,7 @@ BarWidget {
   function zoneAccent(zone) {
     if (zone === zoneCodex) return codexHot
     if (zone === zoneKimi) return kimiHot
+    if (zone === zoneZcode) return zcodeHot
     if (zone === zoneGrok) return grokHot
     if (zone === zoneLocal) return showLocal && !localOnline ? urgent : localHot
     return claudeHot
@@ -476,6 +483,10 @@ BarWidget {
         + "\n" + (svc.kimiPlanTier !== "" ? svc.kimiPlanTier + " plan" : "plan unknown")
         + "  ·  monthly quota " + quotaText(svc.kimiMonthly, svc.kimiLimitsMeasuredAt)
         + adviceLines("kimi")
+    if (zone === zoneZcode)
+      return "ZCODE  ·  " + compact(svc.zcodeTotal) + " tokens / last " + span
+        + "\nnow " + compact(svc.zcodeLatest) + " this bucket  ·  " + svc.zcodeSessions + " sessions"
+        + adviceLines("zcode")
     if (zone === zoneGrok)
       return "GROK  ·  " + compact(svc.grokTotal) + " tokens / last " + span
         + "\nnow " + compact(svc.grokLatest) + " this bucket  ·  " + svc.grokSessions + " sessions"
@@ -589,6 +600,7 @@ BarWidget {
     if (svc && svc.codexPresent) out.push("codex")
     if (svc && svc.grokPresent) out.push("grok")
     if (svc && svc.kimiPresent) out.push("kimi")
+    if (svc && svc.zcodePresent) out.push("zcode")
     if (svc && svc.hasComputeGpu) out.push("local")
     return out
   }
@@ -703,6 +715,14 @@ BarWidget {
   readonly property color kimiWarm: themed(baseKimiWarm, "cyan", "blue")
   readonly property color kimiHot:  themed(baseKimiHot,  "cyan", "blue")
 
+  // Zcode: violet, the one identity hue no other lane claims.
+  readonly property color baseZcodeCold: "#2E1A47"
+  readonly property color baseZcodeWarm: "#7C4DBE"
+  readonly property color baseZcodeHot:  "#B78CF2"
+  readonly property color zcodeCold: themed(baseZcodeCold, "magenta", "violet")
+  readonly property color zcodeWarm: themed(baseZcodeWarm, "magenta", "violet")
+  readonly property color zcodeHot:  themed(baseZcodeHot,  "magenta", "violet")
+
   readonly property color baseLocalCold: "#241046"
   readonly property color baseLocalWarm: "#7A3BE0"
   readonly property color baseLocalHot:  "#C79BFF"
@@ -757,6 +777,7 @@ BarWidget {
   readonly property real codexRef: Math.max(svc ? svc.codexPeak : 0, scaleFloor)
   readonly property real grokRef: Math.max(svc ? svc.grokPeak : 0, scaleFloor)
   readonly property real kimiRef: Math.max(svc ? svc.kimiPeak : 0, scaleFloor)
+  readonly property real zcodeRef: Math.max(svc ? svc.zcodePeak : 0, scaleFloor)
 
   function norm(tokens, reference) {
     if (!(tokens > 0)) return 0
@@ -796,6 +817,14 @@ BarWidget {
     if (!b || !b.length) return 0
     var idx = b.length - root.cellCount + i
     return root.norm(idx >= 0 && idx < b.length ? Number(b[idx].kimi || 0) : 0, root.kimiRef)
+  }
+
+  // Zcode rides after Kimi, same scale again.
+  function zcodeLevel(i) {
+    var b = root.buckets
+    if (!b || !b.length) return 0
+    var idx = b.length - root.cellCount + i
+    return root.norm(idx >= 0 && idx < b.length ? Number(b[idx].zcode || 0) : 0, root.zcodeRef)
   }
 
   // Local is already a percentage, so it needs no reference peak, but it does
@@ -1058,10 +1087,10 @@ BarWidget {
   }
 
   function subName(id) {
-    return id === "claude" ? "Claude" : id === "codex" ? "Codex" : id === "grok" ? "Grok" : id === "kimi" ? "Kimi" : ""
+    return id === "claude" ? "Claude" : id === "codex" ? "Codex" : id === "grok" ? "Grok" : id === "kimi" ? "Kimi" : id === "zcode" ? "Zcode" : ""
   }
   function subColor(id) {
-    return id === "claude" ? claudeHot : id === "codex" ? codexHot : id === "grok" ? grokHot : kimiHot
+    return id === "claude" ? claudeHot : id === "codex" ? codexHot : id === "grok" ? grokHot : id === "kimi" ? kimiHot : id === "zcode" ? zcodeHot : kimiHot
   }
   function subLimits(id) {
     if (!svc) return []
@@ -1138,7 +1167,7 @@ BarWidget {
   function subBurning(id) {
     if (!svc) return false
     return (id === "claude" ? svc.claudeTrailing5 : id === "codex" ? svc.codexTrailing5
-      : id === "grok" ? svc.grokTrailing5 : id === "kimi" ? svc.kimiTrailing5 : 0) > 0
+      : id === "grok" ? svc.grokTrailing5 : id === "kimi" ? svc.kimiTrailing5 : id === "zcode" ? svc.zcodeTrailing5 : 0) > 0
   }
   // The moment a percentage is true FOR. A provider's figure only moves when it
   // is re-measured, so running the clock past that moment while tokens are
@@ -1273,7 +1302,8 @@ BarWidget {
     || ((!showClaude || (svc ? svc.claudeLatest : 0) <= 0)
         && (!showCodex || (svc ? svc.codexLatest : 0) <= 0)
         && (!showGrok || (svc ? svc.grokLatest : 0) <= 0)
-        && (!showKimi || (svc ? svc.kimiLatest : 0) <= 0)))
+        && (!showKimi || (svc ? svc.kimiLatest : 0) <= 0)
+        && (!showZcode || (svc ? svc.zcodeLatest : 0) <= 0)))
 
   // One number for "how hard is this machine working right now", across all
   // three agents. Drives every global effect: under-glow, sparks, frame rate.
@@ -1282,6 +1312,7 @@ BarWidget {
       root.broken || !root.showCodex ? 0 : root.codexLevel(0),
       root.broken || !root.showGrok ? 0 : root.grokLevel(root.cellCount - 1),
       root.broken || !root.showKimi ? 0 : root.kimiLevel(root.cellCount - 1),
+      root.broken || !root.showZcode ? 0 : root.zcodeLevel(root.cellCount - 1),
       root.showLocal && root.localOnline ? root.localLevel(0) : 0)
 
   readonly property color energyColor: root.broken ? urgent
@@ -1368,6 +1399,7 @@ BarWidget {
   property real codexFlash: 0
   property real grokFlash: 0
   property real kimiFlash: 0
+  property real zcodeFlash: 0
   property real localFlash: 0
   // Wave position gets its own monotonic 0→1. The flash value (up in 90 ms,
   // down over 700) is brightness only; driving position from it sent the
@@ -1408,6 +1440,11 @@ BarWidget {
     NumberAnimation { target: root; property: "kimiFlash"; to: 0; duration: 700; easing.type: Easing.OutCubic }
   }
   SequentialAnimation {
+    id: zcodeImpact
+    NumberAnimation { target: root; property: "zcodeFlash"; to: 1; duration: 90; easing.type: Easing.OutQuad }
+    NumberAnimation { target: root; property: "zcodeFlash"; to: 0; duration: 700; easing.type: Easing.OutCubic }
+  }
+  SequentialAnimation {
     id: localImpact
     NumberAnimation { target: root; property: "localFlash"; to: 1; duration: 80; easing.type: Easing.OutQuad }
     NumberAnimation { target: root; property: "localFlash"; to: 0; duration: 620; easing.type: Easing.OutCubic }
@@ -1419,6 +1456,7 @@ BarWidget {
     function onCodexPulseChanged() { codexImpact.restart() }
     function onGrokPulseChanged() { grokImpact.restart() }
     function onKimiPulseChanged() { kimiImpact.restart() }
+    function onZcodePulseChanged() { zcodeImpact.restart() }
     function onLocalPulseChanged() { localImpact.restart() }
   }
 
@@ -1761,15 +1799,19 @@ BarWidget {
       // below (inner → sideWidth → every lane width) NaN.
       readonly property real grokSepSpace: root.grokExtra ? graph.grokSep : 0
       readonly property real kimiSepSpace: root.kimiExtra ? graph.grokSep : 0
+      readonly property real zcodeSepSpace: root.zcodeExtra ? graph.grokSep : 0
       readonly property real inner: Math.max(1, width - localWidth - ruleWidth
-        - gaugesSpace - dividerSpace - grokSepSpace - kimiSepSpace)
+        - gaugesSpace - dividerSpace - grokSepSpace - kimiSepSpace - zcodeSepSpace)
       readonly property real extraGrokW: root.grokExtra
         ? Math.max(Style.space(10), Math.round(inner * 0.16)) : 0
       // Kimi takes the same narrow band as Grok. Every term here is 0 while the
       // lane is hidden, so a strip without Kimi lays out exactly as before.
       readonly property real extraKimiW: root.kimiExtra
         ? Math.max(Style.space(10), Math.round(inner * 0.16)) : 0
-      readonly property real pairInner: Math.max(1, inner - extraGrokW - extraKimiW)
+      // Zcode takes the same narrow band as Kimi and Grok.
+      readonly property real extraZcodeW: root.zcodeExtra
+        ? Math.max(Style.space(10), Math.round(inner * 0.16)) : 0
+      readonly property real pairInner: Math.max(1, inner - extraGrokW - extraKimiW - extraZcodeW)
       readonly property real sideWidth: root.cloudAgents <= 1 ? pairInner
         : Math.max(1, pairInner / 2)
       readonly property real claudeLaneWidth: !root.showClaude ? 0
@@ -1783,6 +1825,10 @@ BarWidget {
       readonly property real kimiLaneWidth: !root.showKimi ? 0
         : root.cloudAgents === 1 ? pairInner
         : root.kimiExtra ? extraKimiW
+        : sideWidth
+      readonly property real zcodeLaneWidth: !root.showZcode ? 0
+        : root.cloudAgents === 1 ? pairInner
+        : root.zcodeExtra ? extraZcodeW
         : sideWidth
 
       // Zone spans, used for both the tinted plates and hit-testing. Derived
@@ -1802,15 +1848,22 @@ BarWidget {
       readonly property real kimiZoneStart: grokZoneStart + grokZoneWidth
       readonly property real kimiZoneWidth:
         kimiSepSpace + kimiLaneWidth + kimiGaugeSpace + ruleWidth / 2
-      readonly property real localZoneStart: kimiZoneStart + kimiZoneWidth
+      // Zcode has no quota gauge (no plan meter exists for it), so its zone
+      // is separator + cells + its half of the rule.
+      readonly property real zcodeZoneStart: kimiZoneStart + kimiZoneWidth
+      readonly property real zcodeZoneWidth:
+        zcodeSepSpace + zcodeLaneWidth + ruleWidth / 2
+      readonly property real localZoneStart: zcodeZoneStart + zcodeZoneWidth
       readonly property real localZoneWidth: Math.max(0, width - localZoneStart)
 
       function zoneAt(x) {
         if (root.showClaude && x < claudeZoneWidth) return root.zoneClaude
         if (root.showCodex && x < grokZoneStart) return root.zoneCodex
         if (root.showGrok && x < kimiZoneStart) return root.zoneGrok
-        if (root.showKimi && (!root.showLocal || x < localZoneStart)) return root.zoneKimi
+        if (root.showKimi && x < zcodeZoneStart) return root.zoneKimi
+        if (root.showZcode && (!root.showLocal || x < localZoneStart)) return root.zoneZcode
         if (root.showLocal) return root.zoneLocal
+        if (root.showZcode) return root.zoneZcode
         if (root.showKimi) return root.zoneKimi
         if (root.showGrok) return root.zoneGrok
         if (root.showCodex) return root.zoneCodex
@@ -1827,6 +1880,7 @@ BarWidget {
           { zone: root.zoneCodex, from: graph.claudeZoneWidth, span: graph.codexZoneWidth, on: root.showCodex },
           { zone: root.zoneGrok, from: graph.grokZoneStart, span: graph.grokZoneWidth, on: root.showGrok },
           { zone: root.zoneKimi, from: graph.kimiZoneStart, span: graph.kimiZoneWidth, on: root.showKimi },
+          { zone: root.zoneZcode, from: graph.zcodeZoneStart, span: graph.zcodeZoneWidth, on: root.showZcode },
           { zone: root.zoneLocal, from: graph.localZoneStart, span: graph.localZoneWidth, on: root.showLocal }
         ]
         delegate: Item {
@@ -2085,6 +2139,31 @@ BarWidget {
         accent: root.kimiHot
       }
 
+      Item {
+        id: zcodeSeparator
+        visible: root.zcodeExtra
+        width: root.zcodeExtra ? graph.grokSep : 0
+        height: parent.height
+        anchors.left: root.showKimi ? (root.showGauges ? kimiGauge.right : kimiLane.right)
+          : (root.showGauges ? grokGauge.right : grokLane.right)
+        anchors.verticalCenter: parent.verticalCenter
+      }
+
+      ThermalLane {
+        id: zcodeLane
+        visible: root.showZcode
+        width: graph.zcodeLaneWidth
+        height: parent.height
+        anchors.left: zcodeSeparator.right
+        anchors.verticalCenter: parent.verticalCenter
+        count: root.cellCount
+        cold: root.zcodeCold; warm: root.zcodeWarm; hot: root.zcodeHot
+        newestLast: true
+        flash: root.zcodeFlash
+        phaseSign: 1
+        levelAt: function(i) { return root.zcodeLevel(i) }
+      }
+
       Rectangle {
         id: grokWave
         visible: root.grokFlash > 0.01
@@ -2122,10 +2201,12 @@ BarWidget {
         visible: root.showLocal
         width: graph.ruleWidth
         height: parent.height
-        // After the LAST cloud lane. Kimi is laid out after Grok, so anchoring
-        // here to Grok alone painted the local lane over Kimi's cells whenever
-        // both were on, while the tooltip still named Kimi.
-        anchors.left: root.showKimi ? (root.showGauges ? kimiGauge.right : kimiLane.right)
+        // After the LAST cloud lane. Kimi is laid out after Grok and Zcode
+        // after Kimi, so anchoring here to Grok alone painted the local lane
+        // over Kimi's cells whenever both were on, while the tooltip still
+        // named Kimi.
+        anchors.left: root.showZcode ? zcodeLane.right
+          : root.showKimi ? (root.showGauges ? kimiGauge.right : kimiLane.right)
           : (root.showGauges ? grokGauge.right : grokLane.right)
         anchors.verticalCenter: parent.verticalCenter
 

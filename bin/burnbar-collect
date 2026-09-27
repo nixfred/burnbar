@@ -75,6 +75,12 @@ USAGE_DIR = STATE / "omarchy" / "agents" / "usage"
 
 CLAUDE_ROOT = HOME / ".claude" / "projects"
 CODEX_ROOT = HOME / ".codex" / "sessions"
+# Zcode (Z.ai's coding agent) keeps one model-io jsonl per session under
+# ~/.zcode/cli/rollout; each line is one completed model request with its own
+# usage object and the model id that served it. Versions before the rollout
+# store wrote agents/sess_*/agent_*/transcript.jsonl instead — that layout
+# has no per-request usage lines and is not read.
+ZCODE_ROOT = HOME / ".zcode" / "cli" / "rollout"
 GROK_HOME = Path(os.environ.get("GROK_HOME") or HOME / ".grok")
 GROK_ROOT = GROK_HOME / "sessions"
 GROK_LOG = GROK_HOME / "logs" / "unified.jsonl"
@@ -106,6 +112,7 @@ EXTRA_HOMES = [Path(p.strip()).expanduser() for p in
 CLAUDE_ROOTS = _unique_roots([CLAUDE_ROOT] + [h / ".claude" / "projects" for h in EXTRA_HOMES])
 CODEX_ROOTS = _unique_roots([CODEX_ROOT] + [h / ".codex" / "sessions" for h in EXTRA_HOMES])
 GROK_ROOTS = _unique_roots([GROK_ROOT] + [h / ".grok" / "sessions" for h in EXTRA_HOMES])
+ZCODE_ROOTS = _unique_roots([ZCODE_ROOT] + [h / ".zcode" / "cli" / "rollout" for h in EXTRA_HOMES])
 
 CACHE_VERSION = 2
 # A token count larger than this is not a token count.
@@ -142,7 +149,7 @@ def str_arg(flag, fallback, limit=64):
     return fallback
 
 
-USAGE = """burnbar-collect: bucket Claude, Codex and Grok token burn into a rolling window.
+USAGE = """burnbar-collect: bucket Claude, Codex, Grok and Zcode token burn into a rolling window.
 
 usage: burnbar-collect [--window MIN] [--buckets N] [--no-local]
                        [--meter-host HOST] [--meter-unit UNIT] [--print]
@@ -202,7 +209,8 @@ latest_ok = now_ms + FUTURE_SLACK_MS
 t5 = now_ms - 5 * 60_000
 t60 = now_ms - 60 * 60_000
 
-buckets = [{"t": grid_start + i * BUCKET_MS, "claude": 0, "codex": 0, "grok": 0, "kimi": 0, "local": 0}
+buckets = [{"t": grid_start + i * BUCKET_MS, "claude": 0, "codex": 0, "grok": 0, "kimi": 0,
+            "zcode": 0, "local": 0}
            for i in range(BUCKETS)]
 
 
@@ -506,6 +514,47 @@ def walk_roots(roots, match):
         yield from walk(root, match)
 
 
+def zcode_extract(line, _state):
+    """One line of a zcode model-io rollout: a completed model request with
+    its own usage. Per-request counts, so there is no cumulative counter to
+    difference (the Codex problem) and no streamed revisions to dedupe (the
+    Claude problem); requestId is kept in the point for the day it is needed.
+    Cache reads ride along in the split and stay out of the heat, as with
+    every other lane. A usage field that is present but not a count rejects
+    the line; a field that is simply absent reads as zero, because older
+    zcode lines carry no cache fields at all."""
+    if '"usage"' not in line:
+        return None
+    try:
+        d = json.loads(line)
+        # The usage object rides inside the recorded response, not at the top
+        # level: response.usage is zcode's own shape, and providers that
+        # report through response.providerMetadata duplicate it there.
+        response = d.get("response")
+        usage = response.get("usage") if isinstance(response, dict) else None
+        if not isinstance(usage, dict):
+            return None
+        ts = parse_ts(d.get("completedAt"))
+        if ts is None:
+            return None
+
+        def count(name):
+            v = usage.get(name)
+            if v is None:
+                return 0
+            if isinstance(v, bool) or not isinstance(v, (int, float)) or v < 0:
+                raise ValueError(name)
+            return int(v)
+
+        inputs, outputs = count("inputTokens"), count("outputTokens")
+        cache_w, cache_r = count("cacheWriteTokens"), count("cacheReadTokens")
+        model = d.get("model") if isinstance(d.get("model"), dict) else {}
+        return [ts, inputs + cache_w + outputs, str(d.get("requestId") or ""),
+                str(model.get("modelId") or "zcode"), [inputs, cache_w, outputs, cache_r]]
+    except MALFORMED:
+        return None
+
+
 # ── aggregation ──────────────────────────────────────────────────────────────
 class Agent:
     def __init__(self, key):
@@ -749,6 +798,19 @@ for f in walk_roots(GROK_ROOTS, lambda n: n == "updates.jsonl"):
 grok.files = len(touched)
 
 
+# ── Zcode (Z.ai's coding agent, ~/.zcode/cli/rollout) ────────────────────────
+zcode = Agent("zcode")
+touched = set()
+for f in walk_roots(ZCODE_ROOTS, lambda n: n.startswith("model-io-") and n.endswith(".jsonl")):
+    for pt in scan(f, zcode_extract):
+        try:
+            if zcode.add(pt):
+                touched.add(f)
+        except Exception:
+            continue
+zcode.files = len(touched)
+
+
 def grok_limits_from_log():
     """Weekly credit %% from the newest billing snapshot in unified.jsonl."""
     latest = None
@@ -857,6 +919,7 @@ def agent_present(roots, match):
 claude_present = agent_present(CLAUDE_ROOTS, lambda n: n.endswith(".jsonl"))
 codex_present = agent_present(CODEX_ROOTS, lambda n: n.startswith("rollout-") and n.endswith(".jsonl"))
 grok_present = agent_present(GROK_ROOTS, lambda n: n == "updates.jsonl")
+zcode_present = agent_present(ZCODE_ROOTS, lambda n: n.startswith("model-io-") and n.endswith(".jsonl"))
 def kimi_configured():
     """True when this machine is set up for Kimi at all: its plan or its quota
     came back from Kimi's own API. Fred, 2026-09-20: "It should default on
@@ -1778,7 +1841,7 @@ def with_kimi_plan(agent_payload):
 refresh_kimi_plan()
 refresh_kimi_usage()
 PACE["samples"] = load_samples()
-all_burn = claude.total + codex.total + grok.total + kimi.total + local.total
+all_burn = claude.total + codex.total + grok.total + kimi.total + zcode.total + local.total
 payload = {
     "generatedAt": now_ms,
     "windowMinutes": WINDOW_MIN,
@@ -1795,6 +1858,9 @@ payload = {
     "grok": with_pace(dict(with_grok_limits(grok.payload()), limitsLive=False,
                            lastWriteAt=GROK_NEWEST["ms"]), "grok"),
     "kimi": with_pace(with_kimi_plan(kimi.payload()), "kimi"),
+    # Zcode has no plan meter Burn Bar can read (the GLM Coding Plan quota is
+    # tracked elsewhere), so this lane is burn-only: no limits rows, no pace.
+    "zcode": with_pace(zcode.payload(), "zcode"),
     # Local tokens over the same exact window, and the share of everything
     # that burned on this machine which never went to a frontier model.
     "local": dict(local.payload(), available=local_available, reason=local_reason,
@@ -1806,6 +1872,7 @@ payload = {
         "codex": codex_present,
         "grok": grok_present,
         "kimi": kimi_present,
+        "zcode": zcode_present,
     },
 }
 

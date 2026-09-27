@@ -3,6 +3,18 @@
 ## Unreleased
 
 ### Added
+- **A Zcode lane.** `~/.zcode/cli/rollout/model-io-sess_*.jsonl` — Z.ai's
+  coding agent — is counted like any other cloud lane. Each line is one
+  completed model request with its own usage object and model id, so the
+  lane is per-request arithmetic: no cumulative counter to difference, no
+  streamed revisions to dedupe, cache reads carried in the split and kept
+  out of the heat. Burn only, by design: no plan meter exists that Burn Bar
+  can read, so there are no limits rows, no quota gauge and no pace advice —
+  the lane never claims to know what the plan holds. Rides
+  `BURNBAR_EXTRA_HOMES` with the rest (`.zcode/cli/rollout` under each
+  root). Layouts older than the rollout store have no per-request usage
+  lines and are not read.
+- **`BURNBAR_EXTRA_HOMES`: count the burn of other machines.** A
 - **`BURNBAR_EXTRA_HOMES`: count the burn of other machines.** A
   colon-separated list of `$HOME`-shaped roots, rsync mirrors of other boxes
   on your network, whose Claude, Codex and Grok transcripts are scanned into

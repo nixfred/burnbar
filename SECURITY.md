@@ -12,6 +12,8 @@ file under:
 - `~/.claude/projects/**/*.jsonl`: your complete Claude Code conversations
 - `~/.grok/sessions/**/updates.jsonl` and `~/.grok/logs/unified.jsonl`, Grok Build/CLI session updates and billing snapshots
 - `~/.codex/sessions/**/rollout-*.jsonl`: your complete Codex sessions
+- `~/.zcode/cli/rollout/**.jsonl`: your complete Zcode model input/output
+  records, prompts included
 
 These files contain your prompts, the assistant's replies, and the contents of
 files you worked on. There is no way to count per-turn tokens without reading

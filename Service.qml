@@ -101,12 +101,14 @@ Item {
   property real kimiPeakAt: 0
   property real kimiTrailing5: 0
   property real kimiTrailing60: 0
-  // Zcode (Z.ai's coding agent) is burn-only: no plan meter exists that Burn
-  // Bar can read, so there are no limits fields to carry and every lane row
-  // that would read them stays empty by construction.
+  // Zcode (Z.ai's coding agent) is burn-only: no plan meter is read, so the
+  // limits fields stay at their empty values on purpose. limitsLive false is
+  // what tells the panel these are not measurements that went stale.
   property real zcodeTotal: 0
   property real zcodePeak: 0
   property int zcodeSessions: 0
+  property real zcodeLimitsMeasuredAt: 0
+  property bool zcodeLimitsLive: false
   property var zcodeByModel: ({})
   property var zcodeSplit: ({})
   property int zcodeTurns: 0
@@ -562,6 +564,8 @@ Item {
       root.zcodeTotal = num(zc.total)
       root.zcodePeak = num(zc.peak)
       root.zcodeSessions = num(zc.sessions)
+      root.zcodeLimitsMeasuredAt = num(zc.limitsMeasuredAt)
+      root.zcodeLimitsLive = zc.limitsLive === true
       root.zcodeByModel = zc.byModel && typeof zc.byModel === "object" ? zc.byModel : ({})
       root.zcodeSplit = zc.split && typeof zc.split === "object" ? zc.split : ({})
       root.zcodeTurns = num(zc.turns)

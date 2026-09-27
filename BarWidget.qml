@@ -715,13 +715,13 @@ BarWidget {
   readonly property color kimiWarm: themed(baseKimiWarm, "cyan", "blue")
   readonly property color kimiHot:  themed(baseKimiHot,  "cyan", "blue")
 
-  // Zcode: violet, the one identity hue no other lane claims.
-  readonly property color baseZcodeCold: "#2E1A47"
-  readonly property color baseZcodeWarm: "#7C4DBE"
-  readonly property color baseZcodeHot:  "#B78CF2"
-  readonly property color zcodeCold: themed(baseZcodeCold, "magenta", "violet")
-  readonly property color zcodeWarm: themed(baseZcodeWarm, "magenta", "violet")
-  readonly property color zcodeHot:  themed(baseZcodeHot,  "magenta", "violet")
+  // Zcode stays literal on purpose: every named theme hue a lane could borrow
+  // is already claimed (Grok magenta, Kimi cyan, Local violet/blue, Claude
+  // orange, Codex green), and borrowing the theme's red would read as a fault.
+  // Lime is the one identity hue no other lane uses.
+  readonly property color zcodeCold: "#233312"
+  readonly property color zcodeWarm: "#6B9A2E"
+  readonly property color zcodeHot:  "#B8E356"
 
   readonly property color baseLocalCold: "#241046"
   readonly property color baseLocalWarm: "#7A3BE0"
@@ -1102,7 +1102,9 @@ BarWidget {
     return id === "claude" ? { measuredAt: svc.claudeLimitsMeasuredAt, live: svc.claudeLimitsLive, lastAt: svc.claudeLastAt, present: svc.claudePresent }
       : id === "codex" ? { measuredAt: svc.codexLimitsMeasuredAt, live: svc.codexLimitsLive, lastAt: svc.codexLastAt, present: svc.codexPresent }
       : id === "grok" ? { measuredAt: svc.grokLimitsMeasuredAt, live: svc.grokLimitsLive, lastAt: svc.grokLastAt, present: svc.grokPresent }
-      : { measuredAt: svc.kimiLimitsMeasuredAt, live: svc.kimiLimitsLive, lastAt: svc.kimiLastAt, present: svc.kimiPresent }
+      : id === "kimi" ? { measuredAt: svc.kimiLimitsMeasuredAt, live: svc.kimiLimitsLive, lastAt: svc.kimiLastAt, present: svc.kimiPresent }
+      : id === "zcode" ? { measuredAt: svc.zcodeLimitsMeasuredAt, live: svc.zcodeLimitsLive, lastAt: svc.zcodeLastAt, present: svc.zcodePresent }
+      : { measuredAt: 0, live: true, lastAt: 0, present: false }
   }
   function isSessionLabel(label) { return /session|5-hour/i.test(String(label || "")) }
 
@@ -1790,7 +1792,11 @@ BarWidget {
       readonly property int ruleWidth: root.showLocal ? Style.space(4) : 0
       readonly property int grokSep: Style.space(2)
       readonly property bool showDivider: (root.showClaude && root.showCodex) || root.grokAsRight
-      readonly property int gaugeCount: root.showGauges ? root.cloudAgents : 0
+      // Zcode draws no gauge (no quota to show), so it must not buy gauge
+      // space either, or the strip grows dead pixels at its right end.
+      readonly property int gaugeAgents: (root.showClaude ? 1 : 0) + (root.showCodex ? 1 : 0)
+        + (root.showGrok ? 1 : 0) + (root.showKimi ? 1 : 0)
+      readonly property int gaugeCount: root.showGauges ? root.gaugeAgents : 0
       readonly property real gaugesSpace: gaugeCount * (gaugeWidth + gaugeGap)
       readonly property real dividerSpace: showDivider ? dividerWidth : 0
       // `graph.grokSep`, qualified: the separator Item below is `id: grokSep`,
@@ -1846,13 +1852,14 @@ BarWidget {
       readonly property real grokZoneWidth:
         grokSepSpace + grokLaneWidth + grokGaugeSpace
       readonly property real kimiZoneStart: grokZoneStart + grokZoneWidth
+      // The half of the rule belongs to whichever cloud lane is last: Kimi
+      // when zcode is hidden, zcode when it is not. Giving it to both moved
+      // the local plate on machines that have never run zcode.
       readonly property real kimiZoneWidth:
-        kimiSepSpace + kimiLaneWidth + kimiGaugeSpace + ruleWidth / 2
-      // Zcode has no quota gauge (no plan meter exists for it), so its zone
-      // is separator + cells + its half of the rule.
+        kimiSepSpace + kimiLaneWidth + kimiGaugeSpace + (root.showZcode ? 0 : ruleWidth / 2)
       readonly property real zcodeZoneStart: kimiZoneStart + kimiZoneWidth
-      readonly property real zcodeZoneWidth:
-        zcodeSepSpace + zcodeLaneWidth + ruleWidth / 2
+      readonly property real zcodeZoneWidth: root.showZcode
+        ? zcodeSepSpace + zcodeLaneWidth + ruleWidth / 2 : 0
       readonly property real localZoneStart: zcodeZoneStart + zcodeZoneWidth
       readonly property real localZoneWidth: Math.max(0, width - localZoneStart)
 

@@ -518,11 +518,16 @@ def zcode_extract(line, _state):
     """One line of a zcode model-io rollout: a completed model request with
     its own usage. Per-request counts, so there is no cumulative counter to
     difference (the Codex problem) and no streamed revisions to dedupe (the
-    Claude problem); requestId is kept in the point for the day it is needed.
-    Cache reads ride along in the split and stay out of the heat, as with
-    every other lane. A usage field that is present but not a count rejects
-    the line; a field that is simply absent reads as zero, because older
-    zcode lines carry no cache fields at all."""
+    Claude problem); requestId is kept in the point so a re-read of a
+    rewritten file cannot count a request twice. zcode's inputTokens is a
+    bundle: input plus cache write plus cache read (its own agent builds it
+    that way, and on real rollouts it equals the provider's input_tokens plus
+    cache_read), so the fresh input is what remains after both are taken
+    back out, and the heat counts fresh + cache write + output with cache
+    reads carried in the split only, as with every other lane. A usage field
+    that is present but not a count rejects the line; a field that is simply
+    absent reads as zero, because zcode lines carry no cache fields at all
+    when the provider had none to report."""
     if '"usage"' not in line:
         return None
     try:
@@ -537,20 +542,21 @@ def zcode_extract(line, _state):
         ts = parse_ts(d.get("completedAt"))
         if ts is None:
             return None
-
-        def count(name):
-            v = usage.get(name)
-            if v is None:
-                return 0
-            if isinstance(v, bool) or not isinstance(v, (int, float)) or v < 0:
-                raise ValueError(name)
-            return int(v)
-
-        inputs, outputs = count("inputTokens"), count("outputTokens")
-        cache_w, cache_r = count("cacheWriteTokens"), count("cacheReadTokens")
+        inputs = count(usage.get("inputTokens"))
+        outputs = count(usage.get("outputTokens"))
+        cache_w = count(usage.get("cacheWriteTokens"))
+        cache_r = count(usage.get("cacheReadTokens"))
+        if inputs is None or outputs is None or cache_w is None or cache_r is None:
+            return None
+        fresh = inputs - cache_w - cache_r
+        if fresh < 0:
+            return None
+        if fresh + cache_w + outputs == 0 and cache_r == 0:
+            # An aborted request that never reached a model is not a turn.
+            return None
         model = d.get("model") if isinstance(d.get("model"), dict) else {}
-        return [ts, inputs + cache_w + outputs, str(d.get("requestId") or ""),
-                str(model.get("modelId") or "zcode"), [inputs, cache_w, outputs, cache_r]]
+        return [ts, fresh + cache_w + outputs, str(d.get("requestId") or "")[:64],
+                str(model.get("modelId") or "zcode")[:64], [fresh, cache_w, outputs, cache_r]]
     except MALFORMED:
         return None
 
@@ -799,15 +805,87 @@ grok.files = len(touched)
 
 
 # ── Zcode (Z.ai's coding agent, ~/.zcode/cli/rollout) ────────────────────────
+# The rollout store is a ring, not a ledger: at most three model-io files, a
+# 64 MiB cap that turns the newest into one reset line, and the oldest
+# deleted outright. A file that shrinks or vanishes is housekeeping, not a
+# correction of bad data, so the points it already contributed are kept until
+# they age out of the window; the request id on every line keeps the union
+# with a re-read honest.
 zcode = Agent("zcode")
 touched = set()
+zcode_ids = set()
+
+
+def zcode_keep(pt, f):
+    rid = pt[2] if len(pt) > 2 else ""
+    if rid:
+        if rid in zcode_ids:
+            return
+        zcode_ids.add(rid)
+    if zcode.add(pt):
+        touched.add(f)
+
+
+def zcode_union(held, fresh_pts):
+    union, seen_ids = [], set()
+    for pt in list(held) + list(fresh_pts):
+        rid = pt[2] if len(pt) > 2 else ""
+        if rid:
+            if rid in seen_ids:
+                continue
+            seen_ids.add(rid)
+        union.append(pt)
+    return union
+
+
+def zcode_root_of(path_text):
+    for r in ZCODE_ROOTS:
+        s = str(r)
+        if path_text == s or path_text.startswith(s + os.sep):
+            return True
+    return False
+
+
+walked = set()
 for f in walk_roots(ZCODE_ROOTS, lambda n: n.startswith("model-io-") and n.endswith(".jsonl")):
-    for pt in scan(f, zcode_extract):
+    key = str(f)
+    walked.add(key)
+    held = []
+    prev = valid_entry(cache.get(key)) if cache else None
+    if prev:
+        held = prune(prev.get("points") or [])
+    fresh_pts = scan(f, zcode_extract)
+    for pt in zcode_union(held, fresh_pts):
         try:
-            if zcode.add(pt):
-                touched.add(f)
+            zcode_keep(pt, f)
         except Exception:
             continue
+    union = zcode_union(held, fresh_pts)
+    entry = next_cache.get(key)
+    if entry is not None:
+        entry["points"] = union
+    elif prev is not None and union:
+        next_cache[key] = dict(prev, points=union)
+
+# Rotation also deletes files outright. Whatever the cache still holds for a
+# zcode path that is no longer on disk keeps counting until it ages out, and
+# the entry is carried forward so the run after this one can do the same.
+if cache:
+    for key, raw in cache.items():
+        if key in walked or not zcode_root_of(key):
+            continue
+        entry = valid_entry(raw)
+        if not entry:
+            continue
+        pts = prune(entry.get("points") or [])
+        if not pts:
+            continue
+        for pt in pts:
+            try:
+                zcode_keep(pt, Path(key))
+            except Exception:
+                continue
+        next_cache[key] = dict(entry, points=pts)
 zcode.files = len(touched)
 
 
@@ -919,7 +997,11 @@ def agent_present(roots, match):
 claude_present = agent_present(CLAUDE_ROOTS, lambda n: n.endswith(".jsonl"))
 codex_present = agent_present(CODEX_ROOTS, lambda n: n.startswith("rollout-") and n.endswith(".jsonl"))
 grok_present = agent_present(GROK_ROOTS, lambda n: n == "updates.jsonl")
-zcode_present = agent_present(ZCODE_ROOTS, lambda n: n.startswith("model-io-") and n.endswith(".jsonl"))
+# Presence is not only "a rollout file exists": rotation deletes files while
+# their requests are still inside the window, and a lane with counted burn
+# must not hide because its store was tidied.
+zcode_present = (agent_present(ZCODE_ROOTS, lambda n: n.startswith("model-io-") and n.endswith(".jsonl"))
+                 or bool(zcode_ids))
 def kimi_configured():
     """True when this machine is set up for Kimi at all: its plan or its quota
     came back from Kimi's own API. Fred, 2026-09-20: "It should default on
@@ -1858,9 +1940,11 @@ payload = {
     "grok": with_pace(dict(with_grok_limits(grok.payload()), limitsLive=False,
                            lastWriteAt=GROK_NEWEST["ms"]), "grok"),
     "kimi": with_pace(with_kimi_plan(kimi.payload()), "kimi"),
-    # Zcode has no plan meter Burn Bar can read (the GLM Coding Plan quota is
-    # tracked elsewhere), so this lane is burn-only: no limits rows, no pace.
-    "zcode": with_pace(zcode.payload(), "zcode"),
+    # Zcode is burn-only: no plan meter is read (Z.ai's quota endpoint is
+    # undocumented and not probed), so there are no limits rows and no pace.
+    # limitsLive false keeps the panel from demanding a measurement time for
+    # figures that were never claimed to exist.
+    "zcode": with_pace(dict(zcode.payload(), limitsLive=False), "zcode"),
     # Local tokens over the same exact window, and the share of everything
     # that burned on this machine which never went to a frontier model.
     "local": dict(local.payload(), available=local_available, reason=local_reason,

@@ -584,34 +584,66 @@ ok "roots are stripped, missing roots are absent, a repeated root counts once"
 # ── zcode: one line per completed model request ──────────────────────────────
 # ~/.zcode/cli/rollout/model-io-sess_*.jsonl. Per-request usage (no cumulative
 # counter, no streamed revisions), so what the line says is what the lane
-# counts: input + cache-write + output in the heat, cache reads carried in the
-# split but excluded, model attributed from the line itself. Placed in the
-# mirror only, to prove BURNBAR_EXTRA_HOMES carries the zcode root too.
-zcode_dir="$other/.zcode/cli/rollout"
-mkdir -p "$zcode_dir"
-zc="$zcode_dir/model-io-sess_fixture.jsonl"
+# counts. zcode's inputTokens is a bundle (input + cache write + cache read),
+# so the heat is fresh input + cache write + output, cache reads carried in
+# the split but excluded, model attributed from the line itself. The first
+# line also lives in the LOCAL rollout root, to prove that path is walked
+# too; the rest are mirror-only.
+mkdir -p "$fake_home/.zcode/cli/rollout" "$other/.zcode/cli/rollout"
+zlocal="$fake_home/.zcode/cli/rollout/model-io-sess_local.jsonl"
 printf '{"completedAt":"%s","requestId":"req_z1","attempt":1,"model":{"modelId":"glm-5.3"},"response":{"usage":{"inputTokens":400,"outputTokens":150,"totalTokens":550,"cacheReadTokens":300,"cacheWriteTokens":50}}}\n' \
-  "$now_iso" > "$zc"
+  "$now_iso" > "$zlocal"
+zc="$other/.zcode/cli/rollout/model-io-sess_fixture.jsonl"
 printf '{"completedAt":"%s","requestId":"req_z2","attempt":1,"model":{"modelId":"qwen3.8-27b"},"response":{"usage":{"inputTokens":100,"outputTokens":20,"totalTokens":120}}}\n' \
-  "$now_iso" >> "$zc"
-# A record whose usage is not counts is skipped, not fatal.
-printf '{"completedAt":"%s","requestId":"req_z3","attempt":1,"model":{"modelId":"glm-5.3"},"response":{"usage":{"inputTokens":"unknown","outputTokens":1}}}\n' \
+  "$now_iso" > "$zc"
+# Records whose usage is not counts are skipped, not fatal: a string, a bool,
+# a negative, a float that is not whole, 1e999 and a count over the cap.
+printf '{"completedAt":"%s","requestId":"req_b1","response":{"usage":{"inputTokens":"unknown","outputTokens":1}}}\n' "$now_iso" > "$fake_home/.zcode/cli/rollout/model-io-bad.jsonl"
+printf '{"completedAt":"%s","requestId":"req_b2","response":{"usage":{"inputTokens":true,"outputTokens":1}}}\n' "$now_iso" >> "$fake_home/.zcode/cli/rollout/model-io-bad.jsonl"
+printf '{"completedAt":"%s","requestId":"req_b3","response":{"usage":{"inputTokens":-50,"outputTokens":1}}}\n' "$now_iso" >> "$fake_home/.zcode/cli/rollout/model-io-bad.jsonl"
+printf '{"completedAt":"%s","requestId":"req_b4","response":{"usage":{"inputTokens":12.7,"outputTokens":1}}}\n' "$now_iso" >> "$fake_home/.zcode/cli/rollout/model-io-bad.jsonl"
+printf '{"completedAt":"%s","requestId":"req_b5","response":{"usage":{"inputTokens":1e999,"outputTokens":1}}}\n' "$now_iso" >> "$fake_home/.zcode/cli/rollout/model-io-bad.jsonl"
+printf '{"completedAt":"%s","requestId":"req_b6","response":{"usage":{"inputTokens":1000000000000000,"outputTokens":1}}}\n' "$now_iso" >> "$fake_home/.zcode/cli/rollout/model-io-bad.jsonl"
+# A bundle smaller than its own cache part is not arithmetic anyone wrote.
+printf '{"completedAt":"%s","requestId":"req_b7","response":{"usage":{"inputTokens":100,"cacheReadTokens":300,"outputTokens":1}}}\n' "$now_iso" >> "$fake_home/.zcode/cli/rollout/model-io-bad.jsonl"
+# The same requestId twice counts once.
+printf '{"completedAt":"%s","requestId":"req_z2","attempt":1,"model":{"modelId":"qwen3.8-27b"},"response":{"usage":{"inputTokens":100,"outputTokens":20,"totalTokens":120}}}\n' \
   "$now_iso" >> "$zc"
 BURNBAR_EXTRA_HOMES="$other" BURNBAR_METER_JOURNAL="$tmp/journal-empty.txt" \
   HOME="$fake_home" GROK_HOME="$fake_home/.grok" python3 bin/burnbar-collect --window 360 --buckets 12
-jq -e '.zcode.total == 720 and .zcode.turns == 2 and .zcode.sessions == 1
-  and .zcode.byModel["glm-5.3"] == 600 and .zcode.byModel["qwen3.8-27b"] == 120
-  and .zcode.split.input == 500 and .zcode.split.cacheWrite == 50
+jq -e '.zcode.total == 370 and .zcode.turns == 2 and .zcode.sessions == 2
+  and .zcode.byModel["glm-5.3"] == 250 and .zcode.byModel["qwen3.8-27b"] == 120
+  and .zcode.split.input == 150 and .zcode.split.cacheWrite == 50
   and .zcode.split.output == 170 and .zcode.split.cacheRead == 300
   and .presence.zcode == true' "$out" >/dev/null \
   || fail "zcode lane wrong: $(jq -c '.zcode' "$out")"
-ok "zcode counts per-request usage; cache reads stay out of the heat"
+ok "zcode unbundles inputTokens: cache reads stay out of the heat, junk is skipped, a request id counts once"
 
-# Without the env, the mirror's zcode root is absent and so is the lane.
+# The rollout store is a ring: a file is truncated to a reset line or deleted
+# outright while its requests are still inside the window. What was counted
+# must survive both, which is what the request-id union with the scan cache
+# is for.
+printf '{"completedAt":"%s","requestId":"req_z4","attempt":1,"model":{"modelId":"glm-5.3"},"response":{"usage":{"inputTokens":10,"outputTokens":5,"totalTokens":15}}}\n' \
+  "$now_iso" > "$zc"
+BURNBAR_EXTRA_HOMES="$other" BURNBAR_METER_JOURNAL="$tmp/journal-empty.txt" \
+  HOME="$fake_home" GROK_HOME="$fake_home/.grok" python3 bin/burnbar-collect --window 360 --buckets 12
+[ "$(jq -r '.zcode.total' "$out")" = "385" ] \
+  || fail "a truncated rollout lost its earlier requests: $(jq -r '.zcode.total' "$out") != 385"
+ok "a truncated rollout keeps the requests it already counted"
+
+rm -f "$zc"
+BURNBAR_EXTRA_HOMES="$other" BURNBAR_METER_JOURNAL="$tmp/journal-empty.txt" \
+  HOME="$fake_home" GROK_HOME="$fake_home/.grok" python3 bin/burnbar-collect --window 360 --buckets 12
+[ "$(jq -r '.zcode.total' "$out")" = "385" ] && [ "$(jq -r '.presence.zcode' "$out")" = "true" ] \
+  || fail "a deleted rollout lost its requests or its presence: total $(jq -r '.zcode.total' "$out"), presence $(jq -r '.presence.zcode' "$out")"
+ok "a deleted rollout keeps counting until the window ages it out"
+
+# Without the env, the mirror's zcode root is absent and only the local file
+# remains.
 BURNBAR_METER_JOURNAL="$tmp/journal-empty.txt" \
   HOME="$fake_home" GROK_HOME="$fake_home/.grok" python3 bin/burnbar-collect --window 360 --buckets 12
-jq -e '.zcode.total == 0 and .presence.zcode == false' "$out" >/dev/null \
-  || fail "zcode counted without the extra home: $(jq -c '.zcode' "$out")"
+jq -e '.zcode.total == 250 and .presence.zcode == true' "$out" >/dev/null \
+  || fail "zcode without the extra home should be the local 250: $(jq -c '.zcode' "$out")"
 ok "an unnamed zcode mirror contributes nothing"
 
 # A machine that only has Grok must not claim Claude or Codex are present.

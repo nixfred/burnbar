@@ -19,7 +19,7 @@ them, because the token counts are interleaved with the conversation. If you
 are not comfortable with a bar widget opening those files, do not install this.
 
 When `BURNBAR_EXTRA_HOMES` is set, the collector additionally opens the same
-transcripts under every `$HOME`-shaped root it names — typically rsync mirrors
+transcripts under every `$HOME`-shaped root it names, typically rsync mirrors
 of these very files from your other machines. Burn Bar never fetches them
 itself and never writes to them; whatever put them there did.
 

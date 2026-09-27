@@ -78,19 +78,34 @@ CODEX_ROOT = HOME / ".codex" / "sessions"
 GROK_HOME = Path(os.environ.get("GROK_HOME") or HOME / ".grok")
 GROK_ROOT = GROK_HOME / "sessions"
 GROK_LOG = GROK_HOME / "logs" / "unified.jsonl"
-# BURNBAR_EXTRA_HOMES: $HOME-shaped roots besides this one, colon-separated —
+# BURNBAR_EXTRA_HOMES: $HOME-shaped roots besides this one, colon-separated:
 # rsync mirrors of other machines, typically. A subscription burned from three
 # boxes is still one subscription, so their transcripts count toward the same
 # lanes. A root that does not exist is simply absent (walk() skips it), so a
-# mirror not synced yet costs nothing. Claude's message.id dedupe holds across
-# every root, but Codex and Grok keep per-file state, so a root must not repeat
-# sessions the real $HOME already holds. How the mirrors get there is not this
+# mirror not synced yet costs nothing. Roots are stripped and de-duplicated by
+# real path (a root listed twice, or once plus a symlink to it, must not count
+# twice), which is the one overlap Claude's message.id dedupe does not cover:
+# Codex and Grok keep per-file state. Even so, a root must not repeat sessions
+# the real $HOME already holds. How the mirrors get there is not this
 # collector's business; plan limits stay read from this machine's own records.
-EXTRA_HOMES = [Path(p).expanduser() for p in
+def _unique_roots(roots):
+    seen, out = set(), []
+    for r in roots:
+        try:
+            key = str(r.resolve())
+        except OSError:
+            key = str(r)
+        if key not in seen:
+            seen.add(key)
+            out.append(r)
+    return out
+
+
+EXTRA_HOMES = [Path(p.strip()).expanduser() for p in
                (os.environ.get("BURNBAR_EXTRA_HOMES") or "").split(":") if p.strip()]
-CLAUDE_ROOTS = [CLAUDE_ROOT] + [h / ".claude" / "projects" for h in EXTRA_HOMES]
-CODEX_ROOTS = [CODEX_ROOT] + [h / ".codex" / "sessions" for h in EXTRA_HOMES]
-GROK_ROOTS = [GROK_ROOT] + [h / ".grok" / "sessions" for h in EXTRA_HOMES]
+CLAUDE_ROOTS = _unique_roots([CLAUDE_ROOT] + [h / ".claude" / "projects" for h in EXTRA_HOMES])
+CODEX_ROOTS = _unique_roots([CODEX_ROOT] + [h / ".codex" / "sessions" for h in EXTRA_HOMES])
+GROK_ROOTS = _unique_roots([GROK_ROOT] + [h / ".grok" / "sessions" for h in EXTRA_HOMES])
 
 CACHE_VERSION = 2
 # A token count larger than this is not a token count.

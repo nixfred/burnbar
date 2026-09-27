@@ -566,6 +566,22 @@ BURNBAR_METER_JOURNAL="$tmp/journal-empty.txt" \
   || fail "an unnamed mirror contributed: $(jq -r '.claude.total' "$out") != $(( cl_before + 300 ))"
 ok "the larger revision wins across roots; an unnamed mirror contributes nothing"
 
+# The same root three ways (plain, /., through a symlink) is one root. Codex
+# and Grok keep per-file state, so without the real-path dedupe each extra
+# listing would count the whole mirror again; a missing root inside the list
+# and whitespace around an entry must both be harmless.
+ln -s "$other" "$tmp/other-link"
+BURNBAR_EXTRA_HOMES=" $other : $other/. : $tmp/does-not-exist : $tmp/other-link " \
+  BURNBAR_METER_JOURNAL="$tmp/journal-empty.txt" \
+  HOME="$fake_home" GROK_HOME="$fake_home/.grok" python3 bin/burnbar-collect --window 360 --buckets 12
+[ "$(jq -r '.codex.total' "$out")" = "$(( xt_before + 500 ))" ] \
+  || fail "a repeated root counted codex twice: $(jq -r '.codex.total' "$out") != $(( xt_before + 500 ))"
+[ "$(jq -r '.grok.total' "$out")" = "$(( gt_before + 1500 ))" ] \
+  || fail "a repeated root counted grok twice: $(jq -r '.grok.total' "$out") != $(( gt_before + 1500 ))"
+[ "$(jq -r '.claude.total' "$out")" = "$(( cl_before + 1600 ))" ] \
+  || fail "claude changed under a repeated root: $(jq -r '.claude.total' "$out")"
+ok "roots are stripped, missing roots are absent, a repeated root counts once"
+
 # A machine that only has Grok must not claim Claude or Codex are present.
 grok_only="$tmp/grok-only"
 mkdir -p "$grok_only/.grok/sessions/s1" "$grok_only/.grok/logs"

@@ -310,19 +310,26 @@ live:
   `promptId` (estimate; Grok leaves no full API ledger). Weekly credits from
   `~/.grok/logs/unified.jsonl` billing snapshots.
 - **Other machines**: `BURNBAR_EXTRA_HOMES` names colon-separated
-  `$HOME`-shaped roots besides this one — rsync mirrors of other boxes, laid
+  `$HOME`-shaped roots besides this one: rsync mirrors of other boxes, laid
   out as `<mirror>/.claude/projects`, `<mirror>/.codex/sessions`,
   `<mirror>/.grok/sessions`. Their transcripts count toward the same lanes,
   because a subscription burned from three machines is still one
-  subscription. Claude's `message.id` dedupe holds across every root, so a
-  mirror that lags behind the machine it mirrors adds nothing wrong; Codex
-  and Grok keep per-file state, so a mirror must not repeat sessions this
-  machine already holds. A root that does not exist is simply absent. Keep a
-  mirror fresh with `rsync -a otherbox:.claude/projects/
-  mirror/.claude/projects/` — `-a` matters, the scanner trusts file mtimes.
-  How mirrors arrive is not Burn Bar's business (rsync, syncthing, sshfs),
-  and plan limits stay read from this machine's own records, where the
-  sign-ins live.
+  subscription. Roots are stripped and de-duplicated by real path, so a root
+  listed twice (or once plus a symlink to it) still counts once. Claude's
+  `message.id` dedupe holds across every root, so a mirror that lags behind
+  the machine it mirrors adds nothing wrong; Codex and Grok keep per-file
+  state, so a mirror must not repeat sessions this machine already holds. A
+  root that does not exist is simply absent. Keep a mirror fresh with
+  `rsync -a otherbox:.claude/projects/ mirror/.claude/projects/`; `-a`
+  matters, the scanner trusts file mtimes. Set the variable wherever your
+  graphical session builds its environment (`~/.config/environment.d/` on
+  Omarchy, before the shell starts), and use something that produces plain
+  files: a hung network mount can stall the collector in a way the widget's
+  watchdog cannot clean up after. Two side effects worth knowing: a machine
+  whose lanes are present only through mirrors still refreshes this
+  machine's own limit records, and mirrored Grok file times feed the Grok
+  "used since" wording. Plan limits stay read from this machine's own
+  records, where the sign-ins live.
 - **Limits**: read straight off the records `omarchy-agent-usage-update` keeps
   in `~/.local/state/omarchy/agents/usage/`. Burn Bar keeps those records
   fresh itself by running `omarchy-agent-usage-update --limits-only claude

@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- **`BURNBAR_EXTRA_HOMES`: count the burn of other machines.** A
+  colon-separated list of `$HOME`-shaped roots — rsync mirrors of other boxes
+  on your network — whose Claude, Codex and Grok transcripts are scanned into
+  the same lanes, because a subscription burned from three machines is still
+  one subscription. Claude's `message.id` dedupe holds across every root, so a
+  mirror lagging behind its source adds nothing wrong; Codex and Grok keep
+  per-file state, so a mirror must not repeat sessions the real `$HOME`
+  already holds. Missing roots are simply absent, an unnamed mirror is inert
+  cached points and all, and plan limits stay read from this machine's own
+  records. The collector stays transport-agnostic: rsync, syncthing, sshfs —
+  whatever keeps the mirror fresh is outside this diff. No QML changes; the
+  variable reaches the collector through the environment the shell already
+  passes to it, the way `GROK_HOME` does.
+
 ## 2.2.0 (2026-09-25)
 
 Thanks [@ianswope](https://github.com/ianswope) for this one (PR #2).

@@ -78,6 +78,19 @@ CODEX_ROOT = HOME / ".codex" / "sessions"
 GROK_HOME = Path(os.environ.get("GROK_HOME") or HOME / ".grok")
 GROK_ROOT = GROK_HOME / "sessions"
 GROK_LOG = GROK_HOME / "logs" / "unified.jsonl"
+# BURNBAR_EXTRA_HOMES: $HOME-shaped roots besides this one, colon-separated —
+# rsync mirrors of other machines, typically. A subscription burned from three
+# boxes is still one subscription, so their transcripts count toward the same
+# lanes. A root that does not exist is simply absent (walk() skips it), so a
+# mirror not synced yet costs nothing. Claude's message.id dedupe holds across
+# every root, but Codex and Grok keep per-file state, so a root must not repeat
+# sessions the real $HOME already holds. How the mirrors get there is not this
+# collector's business; plan limits stay read from this machine's own records.
+EXTRA_HOMES = [Path(p).expanduser() for p in
+               (os.environ.get("BURNBAR_EXTRA_HOMES") or "").split(":") if p.strip()]
+CLAUDE_ROOTS = [CLAUDE_ROOT] + [h / ".claude" / "projects" for h in EXTRA_HOMES]
+CODEX_ROOTS = [CODEX_ROOT] + [h / ".codex" / "sessions" for h in EXTRA_HOMES]
+GROK_ROOTS = [GROK_ROOT] + [h / ".grok" / "sessions" for h in EXTRA_HOMES]
 
 CACHE_VERSION = 2
 # A token count larger than this is not a token count.
@@ -133,7 +146,10 @@ clamp to the bounds above; an unrecognised flag is ignored rather than fatal,
 because a collector that exits leaves the widget with an empty strip.
 
 environment: BURNBAR_LOCAL_HOST, BURNBAR_METER_UNIT, BURNBAR_NO_LOCAL=1,
-             BURNBAR_LOCAL_LEDGER, GROK_HOME, BURNBAR_NOW_MS (tests pin the clock)
+             BURNBAR_LOCAL_LEDGER, GROK_HOME, BURNBAR_NOW_MS (tests pin the clock),
+             BURNBAR_EXTRA_HOMES (colon-separated $HOME-shaped roots, e.g. rsync
+             mirrors of other machines, whose transcripts count toward the same
+             lanes; plan limits still come from this machine's records)
 """
 
 # Before any argument is read or any state directory is touched, so that asking
@@ -470,6 +486,11 @@ def walk(root, match):
                 yield Path(dirpath) / name
 
 
+def walk_roots(roots, match):
+    for root in roots:
+        yield from walk(root, match)
+
+
 # ── aggregation ──────────────────────────────────────────────────────────────
 class Agent:
     def __init__(self, key):
@@ -542,7 +563,7 @@ def is_kimi_model(model):
 best = {}
 anonymous = []
 file_of = {}
-for f in walk(CLAUDE_ROOT, lambda n: n.endswith(".jsonl")):
+for f in walk_roots(CLAUDE_ROOTS, lambda n: n.endswith(".jsonl")):
     for pt in scan(f, claude_extract):
         try:
             mid = pt[2] if len(pt) > 2 else ""
@@ -574,7 +595,7 @@ claude.files = len(touched)
 kimi.files = len(kimi_touched)
 
 touched = set()
-for f in walk(CODEX_ROOT, lambda n: n.startswith("rollout-") and n.endswith(".jsonl")):
+for f in walk_roots(CODEX_ROOTS, lambda n: n.startswith("rollout-") and n.endswith(".jsonl")):
     for pt in scan(f, codex_extract):
         try:
             if codex.add(pt):
@@ -703,7 +724,7 @@ def scan_grok(path):
 
 grok = Agent("grok")
 touched = set()
-for f in walk(GROK_ROOT, lambda n: n == "updates.jsonl"):
+for f in walk_roots(GROK_ROOTS, lambda n: n == "updates.jsonl"):
     for pt in scan_grok(f):
         try:
             if grok.add(pt):
@@ -808,21 +829,19 @@ def with_grok_limits(agent_payload):
     return agent_payload
 
 
-def agent_present(root, match):
+def agent_present(roots, match):
     """True when this machine has actually used the agent: a transcript file
-    exists. A binary on PATH with no sessions is not 'in use'; that would
-    light Claude on every Omarchy box."""
-    try:
-        return next(walk(root, match)) is not None
-    except StopIteration:
-        return False
+    exists under any root, its own or a mirrored one. A binary on PATH with
+    no sessions is not 'in use'; that would light Claude on every Omarchy
+    box."""
+    return next(walk_roots(roots, match), None) is not None
 
 
 # Present means 'this machine uses this agent', not 'tokens in the window'.
 # A quiet hour must not hide a lane that was installed yesterday.
-claude_present = agent_present(CLAUDE_ROOT, lambda n: n.endswith(".jsonl"))
-codex_present = agent_present(CODEX_ROOT, lambda n: n.startswith("rollout-") and n.endswith(".jsonl"))
-grok_present = agent_present(GROK_ROOT, lambda n: n == "updates.jsonl")
+claude_present = agent_present(CLAUDE_ROOTS, lambda n: n.endswith(".jsonl"))
+codex_present = agent_present(CODEX_ROOTS, lambda n: n.startswith("rollout-") and n.endswith(".jsonl"))
+grok_present = agent_present(GROK_ROOTS, lambda n: n == "updates.jsonl")
 def kimi_configured():
     """True when this machine is set up for Kimi at all: its plan or its quota
     came back from Kimi's own API. Fred, 2026-09-20: "It should default on

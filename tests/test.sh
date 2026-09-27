@@ -512,6 +512,60 @@ jq -e '.local.available == false and (.local.reason | test("GPU"))' "$out" >/dev
   || fail "--no-local still counted local tokens: $(jq -c '.local | {available, reason, total}' "$out")"
 ok "--no-local skips the meter and reports no GPU"
 
+# ── extra homes: burn mirrored from other machines ───────────────────────────
+# BURNBAR_EXTRA_HOMES names $HOME-shaped roots besides the real one. Their
+# transcripts must land in the same lanes, a Claude message.id shared by two
+# roots must still count once (the larger revision wins, wherever it lives),
+# and a mirror the env does not name must contribute nothing at all.
+other="$tmp/other-home"
+mkdir -p "$other/.claude/projects/q" "$other/.codex/sessions/2026/09/03" "$other/.grok/sessions/s2"
+printf '{"timestamp":"%s","message":{"id":"msg_remote","model":"claude-test","usage":{"input_tokens":0,"cache_creation_input_tokens":0,"output_tokens":700}}}\n' \
+  "$now_iso" > "$other/.claude/projects/q/r.jsonl"
+printf '{"timestamp":"%s","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":600,"cached_input_tokens":200,"cache_write_input_tokens":0,"output_tokens":100}}}}\n' \
+  "$now_iso" > "$other/.codex/sessions/2026/09/03/rollout-r.jsonl"
+printf '%s\n' \
+  '{"timestamp":'"$BURNBAR_NOW_MS"',"method":"session/update","params":{"_meta":{"totalTokens":500,"promptId":"r1","turnStartMs":'"$BURNBAR_NOW_MS"'}}}' \
+  '{"timestamp":'"$BURNBAR_NOW_MS"',"method":"session/update","params":{"_meta":{"totalTokens":2000,"promptId":"r1","turnStartMs":'"$BURNBAR_NOW_MS"'}}}' \
+  > "$other/.grok/sessions/s2/updates.jsonl"
+cl_before=$(jq -r '.claude.total' "$out"); xt_before=$(jq -r '.codex.total' "$out"); gt_before=$(jq -r '.grok.total' "$out")
+BURNBAR_EXTRA_HOMES="$other" BURNBAR_METER_JOURNAL="$tmp/journal-empty.txt" \
+  HOME="$fake_home" GROK_HOME="$fake_home/.grok" python3 bin/burnbar-collect --window 360 --buckets 12
+[ "$(jq -r '.claude.total' "$out")" = "$(( cl_before + 700 ))" ] \
+  || fail "mirror claude burn missing: $(jq -r '.claude.total' "$out") != $(( cl_before + 700 ))"
+[ "$(jq -r '.codex.total' "$out")" = "$(( xt_before + 500 ))" ] \
+  || fail "mirror codex burn missing: $(jq -r '.codex.total' "$out") != $(( xt_before + 500 ))"
+[ "$(jq -r '.grok.total' "$out")" = "$(( gt_before + 1500 ))" ] \
+  || fail "mirror grok burn missing: $(jq -r '.grok.total' "$out") != $(( gt_before + 1500 ))"
+jq -e '.presence.claude == true and .presence.codex == true and .presence.grok == true' "$out" >/dev/null \
+  || fail "presence lost with extra homes: $(jq -c '.presence' "$out")"
+ok "extra homes land in the same lanes"
+
+# The same message.id in two roots is one turn. A rsync that has not caught up
+# can hold a smaller revision of a message the real $HOME already finished, so
+# the winner is the larger revision wherever it lives: 700, not 700 + 300.
+printf '{"timestamp":"%s","message":{"id":"msg_remote","model":"claude-test","usage":{"input_tokens":0,"cache_creation_input_tokens":0,"output_tokens":300}}}\n' \
+  "$now_iso" > "$fake_home/.claude/projects/p/x.jsonl"
+BURNBAR_EXTRA_HOMES="$other" BURNBAR_METER_JOURNAL="$tmp/journal-empty.txt" \
+  HOME="$fake_home" GROK_HOME="$fake_home/.grok" python3 bin/burnbar-collect --window 360 --buckets 12
+[ "$(jq -r '.claude.total' "$out")" = "$(( cl_before + 700 ))" ] \
+  || fail "a message.id in two roots was counted twice: $(jq -r '.claude.total' "$out") != $(( cl_before + 700 ))"
+ok "claude message.id dedupe holds across roots"
+
+# Appending a larger revision to the mirror swaps the winner (700 → 1600) and
+# still counts once; without the env the mirror is inert, cached points and
+# all, and the local 300-token revision is what remains.
+printf '{"timestamp":"%s","message":{"id":"msg_remote","model":"claude-test","usage":{"input_tokens":0,"cache_creation_input_tokens":0,"output_tokens":1600}}}\n' \
+  "$now_iso" >> "$other/.claude/projects/q/r.jsonl"
+BURNBAR_EXTRA_HOMES="$other" BURNBAR_METER_JOURNAL="$tmp/journal-empty.txt" \
+  HOME="$fake_home" GROK_HOME="$fake_home/.grok" python3 bin/burnbar-collect --window 360 --buckets 12
+[ "$(jq -r '.claude.total' "$out")" = "$(( cl_before + 1600 ))" ] \
+  || fail "the larger revision did not take over across roots: $(jq -r '.claude.total' "$out") != $(( cl_before + 1600 ))"
+BURNBAR_METER_JOURNAL="$tmp/journal-empty.txt" \
+  HOME="$fake_home" GROK_HOME="$fake_home/.grok" python3 bin/burnbar-collect --window 360 --buckets 12
+[ "$(jq -r '.claude.total' "$out")" = "$(( cl_before + 300 ))" ] \
+  || fail "an unnamed mirror contributed: $(jq -r '.claude.total' "$out") != $(( cl_before + 300 ))"
+ok "the larger revision wins across roots; an unnamed mirror contributes nothing"
+
 # A machine that only has Grok must not claim Claude or Codex are present.
 grok_only="$tmp/grok-only"
 mkdir -p "$grok_only/.grok/sessions/s1" "$grok_only/.grok/logs"

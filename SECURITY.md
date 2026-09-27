@@ -18,6 +18,11 @@ files you worked on. There is no way to count per-turn tokens without reading
 them, because the token counts are interleaved with the conversation. If you
 are not comfortable with a bar widget opening those files, do not install this.
 
+When `BURNBAR_EXTRA_HOMES` is set, the collector additionally opens the same
+transcripts under every `$HOME`-shaped root it names — typically rsync mirrors
+of these very files from your other machines. Burn Bar never fetches them
+itself and never writes to them; whatever put them there did.
+
 **Burn Bar also logs in to another machine, but only when a compute GPU
 exists and `localHost` is not this machine.** Intel integrated graphics does
 not count. On a GPU-less laptop there is no ssh, no Ollama poll, and no

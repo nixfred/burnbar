@@ -1796,7 +1796,7 @@ BarWidget {
       // space either, or the strip grows dead pixels at its right end.
       readonly property int gaugeAgents: (root.showClaude ? 1 : 0) + (root.showCodex ? 1 : 0)
         + (root.showGrok ? 1 : 0) + (root.showKimi ? 1 : 0)
-      readonly property int gaugeCount: root.showGauges ? root.gaugeAgents : 0
+      readonly property int gaugeCount: root.showGauges ? gaugeAgents : 0
       readonly property real gaugesSpace: gaugeCount * (gaugeWidth + gaugeGap)
       readonly property real dividerSpace: showDivider ? dividerWidth : 0
       // `graph.grokSep`, qualified: the separator Item below is `id: grokSep`,

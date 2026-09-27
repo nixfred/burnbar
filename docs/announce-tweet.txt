@@ -1,18 +1,24 @@
-Burn Bar 2.0 for Omarchy.
+🔥📊 Burn Bar 2.0 for Omarchy
 
-I pay for Claude, Codex, Grok and Kimi. I could already see how much I burned on each one. What I couldn't see was which one I should be using right now. So I made the bar tell me.
+I pay for Claude, Codex, Grok and Kimi. The bar already told me how much I burned on each one. It never told me which one to use right now. So I made it tell me.
 
-Right now mine says USE GROK NEXT. I've used 3% of Grok's week and the week is half gone, so 49% of it is sitting in the bank. Claude says COME BACK IN 8:36:42 if I stop, because I burned 10% of the week in the first 5% of it. Codex is spent until Saturday afternoon. Kimi is on pace.
+Mine says USE GROK NEXT. I am 3% into Grok's week and the week is half over, so 49% of it is sitting in the bank. Claude says COME BACK IN 8:36:42, because I burned 10% of the week in the first 5% of it. Codex is spent until Saturday afternoon. Kimi is on pace.
 
-The banked number is a clock. Stay off a sub and you watch it climb. Get behind and you get a countdown to when you're even again.
+The banked number is a clock. Stay off a sub and watch it climb. Get behind and you get a countdown to the moment you are even again.
 
-If you only have one sub it keeps quiet, there's nothing to pick. It never suggests your local GPU. And it won't send you to a sub whose 5 hour window is about to fill up.
+One sub and it stays quiet, there is nothing to pick. It never points you at your local GPU. It will not send you to a sub whose 5 hour window is about to fill.
 
-What else is in 2.0: one big card per sub with everything about it. A burndown graph on every card. Cards glow and you pick what the glow means. A SETUP page with every option on one screen. Nothing scrolls and it fits a 1080p laptop.
+The rest of 2.0:
 
-Before I shipped it I handed about 7,800 lines to Grok 4.6 and Kimi k3 and told them to find what I got wrong. 22 real bugs. The worst one: with Kimi and the GPU lane both turned on, the GPU lane was drawing right on top of Kimi. It was doing that on my own machine and I hadn't noticed. The whole list is in the repo, including the two findings I threw out and why.
+One big card per sub with everything about it.
+A burndown graph on every card.
+Cards glow, and you pick what the glow means.
+A SETUP page with every option on one screen.
+Nothing scrolls and it fits a 1080p laptop.
 
-My numbers today: 16.1M tokens in 24 hours, 2,404 turns, 75 sessions.
+Before I shipped it I handed about 7,800 lines to Grok 4.6 and Kimi k3 and told them to find what I got wrong. 22 real bugs. The worst one: with Kimi and the GPU lane both turned on, the GPU lane was drawing right on top of Kimi. On my own machine. I had not noticed. The whole list is in the repo, including the two findings I threw out and why.
+
+Today: 16.1M tokens in 24 hours, 2,404 turns, 75 sessions.
 
 Omarchy is DHH's and Basecamp's. This is a plugin on top of it. MIT.
 

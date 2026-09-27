@@ -77,9 +77,9 @@ CLAUDE_ROOT = HOME / ".claude" / "projects"
 CODEX_ROOT = HOME / ".codex" / "sessions"
 # Zcode (Z.ai's coding agent) keeps one model-io jsonl per session under
 # ~/.zcode/cli/rollout; each line is one completed model request with its own
-# usage object and the model id that served it. Versions before the rollout
-# store wrote agents/sess_*/agent_*/transcript.jsonl instead — that layout
-# has no per-request usage lines and is not read.
+# usage object and the model id that served it. The older agents/* transcript
+# store is a different shape and is not read: the rollout store is the
+# lane's root.
 ZCODE_ROOT = HOME / ".zcode" / "cli" / "rollout"
 GROK_HOME = Path(os.environ.get("GROK_HOME") or HOME / ".grok")
 GROK_ROOT = GROK_HOME / "sessions"

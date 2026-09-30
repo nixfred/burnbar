@@ -118,6 +118,8 @@ grep -q "^burnbar-collect: cannot" <<<"$ro_err" || fail "no clean message: $ro_e
 ok "an unwritable state directory is one clear line, not a traceback"
 
 echo "== local intelligence unit tests =="
+python3 tests/test_amd_telemetry.py -q
+ok "AMD telemetry"
 python3 -m unittest discover -s tests -p 'test_local_scripts.py' -q >/dev/null \
   || fail "local script unit tests"
 ok "ollama url/json/ssh/tegra/meter hardening tests"

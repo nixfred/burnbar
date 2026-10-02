@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.2.2 (2026-10-02)
+
+### Fixed
+- **The card's reset line no longer logs a TypeError.** 2.2.1's "bonus reset"
+  caption read the card's primary window twice, and the window can go null a
+  beat before the budget flag follows it, so the shell journal got
+  `BurnPanel.qml:1530 TypeError: Value is null` every half hour or so on both
+  hosts. The caption now holds the window in a local and checks it.
+
 ## 2.2.1 (2026-10-01)
 
 ### Fixed

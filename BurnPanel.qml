@@ -1521,13 +1521,16 @@ Panel {
               Layout.fillWidth: true
               text: {
                 void panel.tick
-                if (card.budgetHero) {
+                // Held in a local: primary can go null a beat before budgetHero
+                // follows it, and reading it twice logged a TypeError each time.
+                var primary = card.primary
+                if (card.budgetHero && primary) {
                   // A surprise reset mid-window: say so, or a week that reads
                   // 11% on a Thursday night looks like a broken meter.
                   var gift = card.pace ? Number(card.pace.giftAt) || 0 : 0
                   return panel.widget.compact(card.total) + " tokens  ·  "
                     + (gift > 0 ? "bonus reset " + Qt.formatDateTime(new Date(gift), "ddd h:mm AP") + "  ·  " : "")
-                    + "resets in " + panel.untilText(card.primary.resetsAt)
+                    + "resets in " + panel.untilText(primary.resetsAt)
                 }
                 if (card.primary && !card.primaryUnknown)
                   return Math.round(Number(card.primary.percent) * 100) + "% of " + panel.windowShort(card.primary.label)

@@ -21,9 +21,10 @@ def load(now_ms=NOW):
     """The pace helpers, with the module-level clock and sample store faked."""
     tree = ast.parse((REPO / "bin" / "burnbar-collect").read_text())
     want_fn = {"window_ms_for", "recent_rate_per_hour", "pace_for", "parse_iso_ms",
-               "local_midnight_ms", "norm_percent", "window_id", "burndown_series"}
+               "local_midnight_ms", "norm_percent", "window_id", "burndown_series", "gift_reset_at"}
     want_const = {"RATE_WINDOW_MS", "RATE_MIN_SPAN_MS", "DAILY_MIN_WINDOW_MS",
-                  "SAMPLE_MAX_AGE_MS", "FUTURE_SLACK_MS", "MALFORMED", "SERIES_MAX_POINTS"}
+                  "SAMPLE_MAX_AGE_MS", "FUTURE_SLACK_MS", "MALFORMED", "SERIES_MAX_POINTS",
+                  "GIFT_MIN_DROP", "GIFT_ID_SLACK_MS"}
     body = [n for n in tree.body
             if isinstance(n, (ast.Import, ast.ImportFrom))
             or (isinstance(n, ast.FunctionDef) and n.name in want_fn)
@@ -126,6 +127,57 @@ class ReviewFixTests(unittest.TestCase):
         p = self.week(0.30, 0.50, [(NOW - 2 * HOUR, 0.20), (NOW, 0.30)])   # 5%/h
         self.assertGreater(p["stopInMs"], 0)
         self.assertLess(p["stopInMs"], 24 * HOUR)
+
+
+class GiftResetTests(unittest.TestCase):
+    """Fred, 2026-10-01: a provider wipes the meter mid-week and the reset date
+    stays where it was. The plan then has to last from the gift to the reset."""
+
+    KEY = "claude|Weekly (7-day)"
+
+    def pace(self, points, used, left=2 * DAY):
+        ns = load()
+        resets = ns["window_id"](NOW + left)
+        ns["PACE"]["samples"][self.KEY] = [(t, p, resets) for t, p in points]
+        row = {"label": "Weekly (7-day)", "percent": used, "resetsAt": iso(resets)}
+        return ns["pace_for"](row, self.KEY, True), resets
+
+    def test_a_wiped_meter_rebases_the_window_on_the_gift(self):
+        gift = NOW - 3 * HOUR
+        p, resets = self.pace([(NOW - DAY, 0.50), (gift - 5 * 60_000, 0.53), (gift, 0.0), (NOW - HOUR, 0.06)], 0.11)
+        self.assertEqual(p["giftAt"], gift)
+        self.assertEqual(p["windowMs"], resets - gift)
+        self.assertEqual(p["fullWindowMs"], 7 * DAY)
+        # 3 hours into a 51 hour budget is about 6% of the clock, not 71%.
+        self.assertLess(p["elapsed"], 0.07)
+        self.assertGreater(p["ratio"], 1.0)
+        # The line starts at the gift: nothing from before it is drawn.
+        self.assertTrue(all(y <= 0.11 + 1e-9 for _, y in p["series"]))
+
+    def test_the_drop_is_seen_on_the_very_run_it_happens(self):
+        p, _ = self.pace([(NOW - DAY, 0.50), (NOW - 5 * 60_000, 0.53)], 0.0)
+        self.assertEqual(p["giftAt"], NOW)
+
+    def test_a_restated_percent_is_not_a_gift(self):
+        p, _ = self.pace([(NOW - DAY, 0.40), (NOW - HOUR, 0.41), (NOW - 30 * 60_000, 0.40)], 0.42)
+        self.assertEqual(p["giftAt"], 0)
+        self.assertEqual(p["windowMs"], 7 * DAY)
+
+    def test_a_normal_rollover_is_not_a_gift(self):
+        # Last week's 82% carries last week's reset, so it is another window.
+        ns = load()
+        resets = ns["window_id"](NOW + 6 * DAY)
+        ns["PACE"]["samples"][self.KEY] = [(NOW - 2 * DAY, 0.82, resets - 7 * DAY), (NOW - DAY, 0.0, resets)]
+        row = {"label": "Weekly (7-day)", "percent": 0.05, "resetsAt": iso(resets)}
+        p = ns["pace_for"](row, self.KEY, True)
+        self.assertEqual(p["giftAt"], 0)
+
+    def test_today_is_counted_from_the_gift_not_from_midnight(self):
+        # Midnight's 40% belongs to the plan that was wiped.
+        gift = NOW - 2 * HOUR
+        p, _ = self.pace([(NOW - 3 * DAY, 0.40), (gift - 60_000, 0.53), (gift, 0.0)], 0.11, left=3 * DAY)
+        self.assertAlmostEqual(p["todayUsed"], 0.11)
+        self.assertGreater(p["todayAllowance"], 0.3)
 
 
 class BurndownSeriesTests(unittest.TestCase):

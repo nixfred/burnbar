@@ -1,5 +1,24 @@
 # Changelog
 
+## 2.2.1 (2026-10-01)
+
+### Fixed
+- **A surprise reset no longer reads as a week of banked budget.** Now and then
+  a provider wipes the meter mid-window and leaves the reset date where it was:
+  Claude did it on Thu 2026-10-01 at 8:38 PM, weekly 53% to 0%, reset still
+  Sunday 6:00 AM. Burn Bar kept pacing the fresh plan against the whole week, so
+  three hours later 11% used read as "55% banked" when it was really 11% spent
+  in the first 5% of what the plan now has to cover. The collector spots the
+  fall (the percentage drops by 3 points or more while the reset stays put) and
+  re-bases the window on that moment: an even spend runs from the gift to the
+  normal reset, so banked, come back in, the pace verdict, today's share and USE
+  NEXT all answer for the plan you actually have.
+- The burndown graph starts at the gift instead of drawing the wiped usage and a
+  cliff, and "today" is counted from the gift instead of from midnight.
+- The card says so: `bonus reset Thu 8:38 PM` beside the reset countdown.
+- A reset that moves the date with it (Codex, Tue 2026-09-29) was already right:
+  that is a new window and is paced as one.
+
 ## 2.2.0 (2026-09-25)
 
 Thanks [@ianswope](https://github.com/ianswope) for this one (PR #2).

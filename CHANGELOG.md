@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.2.3 (2026-10-02)
+
+### Fixed
+- **You can screenshot the open panel again.** Since 2.1.1 the panel took the
+  keyboard back 30ms after any focus loss, so Esc could not fall through to the
+  terminal under it. slurp takes the keyboard the same way, and Hyprland sends
+  the mouse to whichever exclusive layer grabbed last, so the panel landed in
+  front of the picker and a drag over it saved a 19x17 px image. The panel now
+  counts the layers other clients open while it is up (slurp, hyprpicker, the
+  Omarchy menu, clipboard), leaves the keyboard alone while any is open, and
+  takes it back when the last one closes. Other plugins were never affected
+  because they never had the Esc guard.
+
 ## 2.2.2 (2026-10-02)
 
 ### Fixed

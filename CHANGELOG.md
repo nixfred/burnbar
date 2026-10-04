@@ -25,6 +25,8 @@
   or in the cockpit that pulses: the live cell, a 90% gauge, the local core,
   the burndown dot, the live bar and the card glows all hold still.
 - The Claude tooltip carries the 5-hour line while it is hot.
+- While Claude's 5-hour window is hot the advice never suggests Claude, so the
+  strip cannot warn that it is running dry and recommend it in the same breath.
 - The pace is the collector's own: the 5-hour row already had its pace block
   and dry moment, so there is no second pace for it. Its rate is now fitted
   over a tenth of the window (30 minutes of a 5-hour one) instead of two

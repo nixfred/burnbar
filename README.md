@@ -57,8 +57,10 @@ The rules it keeps, so the advice is worth acting on:
   nears.
 - **A lane you unticked is left out.** No card, no cells, no badge, no advice.
 - **A full 5-hour session window blocks a sub**, even with its week wide open,
-  and so does one that will be full inside half an hour. Sending you into a
-  wall is not guidance.
+  and so does one that will be full inside half an hour. Claude is blocked too
+  while its 5-hour window is the one that bites (see below), so the strip never
+  warns that it is running dry and suggests it in the same breath. Sending you
+  into a wall is not guidance.
 - **A snapshot is not treated as exact.** Grok only reports its quota when Grok
   starts, so that figure needs five times the margin before it is suggested,
   more again once Grok has been used since, and the words say when it was

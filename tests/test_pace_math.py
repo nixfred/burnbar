@@ -316,6 +316,21 @@ class PaceTests(unittest.TestCase):
         self.assertEqual(p["todayAllowance"], -1)
         self.assertFalse(p["overDaily"])
 
+    def test_a_five_hour_window_gets_the_same_pace_and_dry_moment_as_the_week(self):
+        # The 5-hour chip reads this block; there is no second pace for it.
+        ns = load()
+        resets = ns["window_id"](NOW + 2 * HOUR)
+        # 3 hours into 5, 65% gone and burning 30 points an hour: dry in 70 min,
+        # 50 min before the reset.
+        ns["PACE"]["samples"]["claude|Session (5-hour)"] = [
+            (NOW - HOUR, 0.35, resets), (NOW - HOUR / 2, 0.50, resets), (NOW, 0.65, resets)]
+        p = ns["pace_for"](self.row(0.65, resets, "Session (5-hour)"), "claude|Session (5-hour)", True)
+        self.assertEqual(p["windowMs"], 5 * HOUR)
+        self.assertGreater(p["ratio"], 1.05)
+        self.assertAlmostEqual(p["ratePerHour"], 0.30, places=6)
+        self.assertAlmostEqual((p["dryAt"] - NOW) / HOUR, 7 / 6, places=3)
+        self.assertLess(p["dryAt"], resets)
+
 
 if __name__ == "__main__":
     unittest.main()

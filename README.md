@@ -116,6 +116,13 @@ it and it fades, and stays gone until that sub reaches a worse stage or its
 window rolls over. With nothing to warn about it names the sub to use next, in
 that sub's colour. Turn the advice off in SETUP if you only want warnings.
 
+Claude's 5-hour window gets the chip too, the moment it is the one that bites:
+spent (`CLAUDE 5-HOUR  SPENT, BACK 2H`), running dry before its reset at the
+measured rate (`OUT IN 40M`), 70% or more gone (`82% USED`), or further over
+its own even pace than the week is (`REST 25M`). It outranks a weekly warning,
+because it locks you out in hours and a week takes days, and while it shows it
+is the only thing on the strip or in the cockpit that pulses.
+
 ![Hovering a lane: the numbers, then where that sub stands](docs/img/tooltips.png)
 
 
@@ -225,9 +232,12 @@ The four places a subscription can stand, from the same capture:
 ![The cards with tokens as the headline](docs/img/headline-tokens.png)
 
 **5-hour session windows** are hidden by default, because the weekly and
-monthly windows are the ones that bite. Turn them on in SETUP and they take
-their place above the rest. Hidden or not, a full one still stops its sub from
-being suggested.
+monthly windows are usually the ones that bite. Turn them on in SETUP and they
+take their place above the rest. Hidden or not, a full one still stops its sub
+from being suggested, and when Claude's is the one about to run out the Claude
+card shows it anyway: how much is gone, when it resets by the clock and
+counting down, and the same verdict the week gets. Calm, it stays out of the
+way.
 
 ![The same cards with 5-hour session windows turned on](docs/img/session-windows.png)
 
@@ -479,7 +489,7 @@ Set from the Omarchy plugin settings UI, or in `shell.json`.
 | `lanes` | `""` | Comma list of subscriptions to show (`claude,codex,grok,kimi`). Empty means every lane this machine knows |
 | `hero` | `budget` | Card headline: `budget` or `tokens` |
 | `glow` | `pace` | What lights a card up: `pace`, `burn`, `spent`, `stop` or `off` |
-| `showSession` | false | Show 5-hour session windows on the cards |
+| `showSession` | false | Always list 5-hour session windows on the cards. Off, Claude's still appears on its card and the strip while it is the one about to run out |
 | `advice` | true | With two or more subscriptions, name the one to use next on the strip when nothing is over pace. The local GPU is never suggested |
 | `maxWidth` | 2400 | Ceiling for the fill, px |
 | `stretchGap` | 14 | Breathing room kept between the strip and the neighbour it grows towards, px |

@@ -1169,10 +1169,11 @@ Panel {
       border.width: 1
       border.color: panel.widget.whiteHot
       SequentialAnimation on scale {
-        running: nowDot.visible && panel.opened
+        running: nowDot.visible && panel.opened && !panel.widget.sessionClaimsPulse
         loops: Animation.Infinite
         NumberAnimation { to: 1.35; duration: 900; easing.type: Easing.InOutQuad }
         NumberAnimation { to: 0.9; duration: 900; easing.type: Easing.InOutQuad }
+        onStopped: nowDot.scale = 1
       }
     }
     // The dry moment, when the present rate reaches the ceiling early.
@@ -1248,10 +1249,11 @@ Panel {
           property real breathe: 0.1
           opacity: Math.min(1, breathe + panel.chartFlash)
           SequentialAnimation on breathe {
-            running: bar.live && panel.opened
+            running: bar.live && panel.opened && !panel.widget.sessionClaimsPulse
             loops: Animation.Infinite
             NumberAnimation { to: 0.45; duration: 900; easing.type: Easing.InOutQuad }
             NumberAnimation { to: 0.06; duration: 900; easing.type: Easing.InOutQuad }
+            onStopped: liveBox.breathe = 0.3
           }
         }
       }
@@ -1299,9 +1301,10 @@ Panel {
     opacity: Math.min(1, level)
 
     // Breathing runs only while the panel is open and this card is lit: a
-    // closed panel animating four blurs would be heat for nobody.
+    // closed panel animating four blurs would be heat for nobody. It also
+    // holds still while a hot 5-hour window owns the one pulse on screen.
     SequentialAnimation {
-      running: panel.opened && cg.breathe && cg.strength > 0
+      running: panel.opened && cg.breathe && cg.strength > 0 && !panel.widget.sessionClaimsPulse
       loops: Animation.Infinite
       NumberAnimation { target: cg; property: "breath"; to: 0.5; duration: 1500; easing.type: Easing.InOutSine }
       NumberAnimation { target: cg; property: "breath"; to: 1; duration: 1500; easing.type: Easing.InOutSine }
@@ -1492,6 +1495,53 @@ Panel {
               : "spend evenly and it lasts"
           }
           Pill { visible: card.isPick; text: panel.guidance.urgent ? "USE NOW" : "USE NEXT"; tone: card.accent }
+        }
+      }
+
+      // ── the 5-hour window, only while it is the one that bites ─────────
+      // Calm, it stays behind the 5-hour switch in SETUP. Hot (spent, running
+      // dry before its reset, 70% gone, or further over pace than the week),
+      // it is on the card whatever the switch says: how much, when it resets
+      // by the clock and counting down, and the same verdict the week gets.
+      Rectangle {
+        id: shortWindow
+        readonly property var heat: card.agent === "claude" ? panel.widget.claudeSessionHeat : null
+        readonly property var row: heat && heat.hot ? panel.widget.sessionLimit("claude") : null
+        readonly property var v: panel.paceVerdict(row, row === null)
+        readonly property color tone: heat && (heat.spent || heat.used >= 0.9) ? Color.urgent : Qt.lighter(Color.urgent, 1.35)
+        visible: row !== null
+        Layout.fillWidth: true
+        implicitHeight: Style.space(panel.tight(32, 30, 28))
+        radius: Style.space(6)
+        color: Util.alpha(tone, 0.10)
+        border.width: 1
+        border.color: Util.alpha(tone, 0.6)
+        RowLayout {
+          anchors.fill: parent
+          anchors.leftMargin: Style.space(10)
+          anchors.rightMargin: Style.space(8)
+          spacing: Style.space(8)
+          Text {
+            textFormat: Text.PlainText
+            color: shortWindow.tone
+            font.family: panel.fontFamily
+            font.pixelSize: Style.font.body
+            font.bold: true
+            text: shortWindow.heat && shortWindow.heat.hot
+              ? "5-HOUR " + Math.round(shortWindow.heat.used * 100) + "%" : ""
+          }
+          Caption {
+            Layout.fillWidth: true
+            text: {
+              void panel.tick
+              var h = shortWindow.heat
+              if (!h || !h.hot) return ""
+              return "resets " + Qt.formatDateTime(new Date(h.resetsMs), "h:mm AP")
+                + "  ·  in " + panel.widget.clockSpan(h.resetsMs - Date.now())
+                + (h.dryAt > 0 ? "  ·  runs out " + Qt.formatDateTime(new Date(h.dryAt), "h:mm AP") : "")
+            }
+          }
+          Pill { text: shortWindow.v.word; tone: shortWindow.v.color }
         }
       }
 
@@ -1994,7 +2044,7 @@ Panel {
               mark: panel.showSessionWindows ? "☑" : "☐"
               on: panel.showSessionWindows
               label: "5-hour session windows"
-              note: "off by default"
+              note: panel.showSessionWindows ? "always" : "only when one bites"
               onActivated: panel.widget.toggleSessionWindows()
             }
 
@@ -2325,15 +2375,17 @@ Panel {
                   Behavior on width { NumberAnimation { duration: 320 } }
                 }
                 Rectangle {
+                  id: localCore
                   anchors.centerIn: parent
                   width: parent.width * 0.58; height: width; radius: width / 2
                   color: panel.localState
                   Behavior on color { ColorAnimation { duration: 260 } }
                   SequentialAnimation on scale {
-                    running: panel.localActive && panel.opened
+                    running: panel.localActive && panel.opened && !panel.widget.sessionClaimsPulse
                     loops: Animation.Infinite
                     NumberAnimation { to: 1.14; duration: 480; easing.type: Easing.InOutSine }
                     NumberAnimation { to: 0.94; duration: 480; easing.type: Easing.InOutSine }
+                    onStopped: localCore.scale = 1
                   }
                 }
                 Rectangle {

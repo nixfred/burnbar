@@ -7,15 +7,17 @@
   hidden unless the 5-hour switch was on (2026-09-20: the week is what usually
   ends a working day), so on 2026-10-03 the 5-hour window nearly ran dry
   mid-work while the bar showed only the week. It is still hidden while calm.
-  It counts as hot when it is spent, when the measured rate runs it dry before
-  its reset, when 70% or more is gone, or when it is over its own even pace by
-  at least 5 points and further over than the week is. Hot, it is on the Claude
-  card whatever the switch says (how much is gone, the reset by the clock and
-  counting down, and the same OVER / WAY OVER verdict the week gets) and the
-  strip chip names it: `CLAUDE 5-HOUR  OUT IN 40M`, `82% USED`, `REST 25M` or
-  `SPENT, BACK 2H`. It outranks a weekly warning, because it locks you out in
-  hours, and clicking answers it until it gets worse or the next 5-hour window
-  starts. The switch now reads "only when one bites" off and "always" on.
+  It counts as hot only when it cannot last to its own reset: the measured
+  rate runs it dry before the reset, or it is spent. How much is gone and how
+  far over its even pace it is are not reasons on their own. Hot, it is on the
+  Claude card whatever the switch says (how much is gone, the reset by the
+  clock and counting down, and the same OVER / WAY OVER verdict the week gets)
+  and the strip chip names it: `CLAUDE 5-HOUR  OUT IN 40M`, `RUNNING OUT` once
+  that moment has passed, or `SPENT, BACK 2H`, every countdown from the present
+  clock like the card's. It outranks a week that is merely over pace, because
+  it locks you out in hours; a week that is spent or way over keeps the chip.
+  Clicking answers it until it gets worse or the next 5-hour window starts.
+  The switch now reads "only when one bites" off and "always" on.
 - **One pulse.** While the 5-hour chip shows, it is the only thing on the strip
   or in the cockpit that pulses: the live cell, a 90% gauge, the local core,
   the burndown dot, the live bar and the card glows all hold still.

@@ -473,7 +473,7 @@ BarWidget {
         + "\nweekly quota " + quotaText(svc.claudeWeekly, svc.claudeLimitsMeasuredAt)
         + (claudeSessionHeat.hot ? "\n5-hour window " + Math.round(claudeSessionHeat.used * 100) + "%  ·  resets "
             + Qt.formatDateTime(new Date(claudeSessionHeat.resetsMs), "h:mm AP")
-            + " (in " + spanWords(claudeSessionHeat.leftMs) + ")" : "")
+            + " (in " + spanWords(claudeSessionHeat.resetsMs - Date.now()) + ")" : "")
         + adviceLines("claude")
     if (zone === zoneCodex)
       return "CODEX  ·  " + compact(svc.codexTotal) + " tokens / last " + span
@@ -939,11 +939,11 @@ BarWidget {
                stage: stage, key: key, resets: resets,
                color: r > 1.5 ? urgent : Qt.lighter(urgent, 1.35), ratio: r }
     }
-    // A hot 5-hour window outranks any weekly warning: it locks Claude out in
-    // hours, a week in days. Answered the same way, keyed to its own reset so
-    // the next 5-hour window starts unanswered.
+    // A hot 5-hour window outranks a week that is merely over pace, not one
+    // that is spent or way over (sessionOutranks). Answered the same way,
+    // keyed to its own reset so the next 5-hour window starts unanswered.
     var heat = claudeSessionHeat
-    if (heat.hot && focusOk("claude")) {
+    if (sessionOutranks(best.stage, heat) && focusOk("claude")) {
       var sseen = root.paceAck ? root.paceAck["claude|session"] : null
       if (!(sseen && Number(sseen.stage) >= heat.stage && Number(sseen.resets) === heat.resetsMs)) {
         var sw = sessionChipWords(heat, Date.now())
@@ -1196,21 +1196,23 @@ BarWidget {
       if (isSessionLabel(rows[i].label) && limitUsable(id, rows[i])) return rows[i]
     return null
   }
-  // Is the 5-hour window the tighter of the two right now? session is the
-  // limit row (percent, resetsAt, and the collector's pace block), weekLive is
-  // paceLive() for the week or null, nowMs the moment the figure stands for.
-  // Hot, most severe reason first:
-  //   spent   the window is used up
-  //   dry     the measured rate runs it dry before it resets (collector dryAt)
-  //   used    70% or more of it is gone
-  //   pace    over its own even pace, at least 5 points past the line, and
-  //           further over than the week is: the short window is the binding one
+  // Is the 5-hour window about to bite? session is the limit row (percent,
+  // resetsAt, and the collector's pace block), weekLive is paceLive() for the
+  // week or null, nowMs the moment the figure stands for. Hot only when the
+  // window cannot last to its own reset:
+  //   spent   the window is used up before its reset
+  //   dry     the measured rate runs it dry before it resets (collector dryAt,
+  //           which is only ever set when the projection crosses the ceiling
+  //           inside the window)
+  // How much is gone and how far over its even pace it is are not reasons on
+  // their own: 70% with the clock on its side, or a pace the window can carry
+  // to its reset, is not news. They feed the stage, so an answered warning
+  // re-opens when it gets worse: dry 1, dry and over its own pace 2, spent 4.
   // A week that is already spent is the wall, so the 5-hour window says
   // nothing then. The pace is the same paceLive() the week uses. Pure, so it
   // is tested.
   function sessionHeat(session, weekLive, nowMs) {
-    var calm = { hot: false, reason: "", stage: 0, used: -1, ratio: -1, behind: 0, resetsMs: 0,
-                 leftMs: 0, dryAt: 0, comeBackAt: 0, comeBackMs: 0, spent: false }
+    var calm = { hot: false, reason: "", stage: 0, used: -1, ratio: -1, resetsMs: 0, dryAt: 0, spent: false }
     if (!session || !(Number(session.percent) >= 0)) return calm
     if (weekLive && weekLive.spent) return calm
     var pace = session.pace || {}
@@ -1219,35 +1221,34 @@ BarWidget {
     var live = paceLive(session.percent, reset, Number(pace.windowMs) || 5 * 3600000, now)
     if (!live) return calm
     var ratio = live.elapsed > 0 ? live.used / live.elapsed : -1
-    var weekRatio = weekLive && weekLive.elapsed > 0 ? weekLive.used / weekLive.elapsed : 0
     var dryAt = Number(pace.dryAt) || 0
     var dry = dryAt > now && dryAt < reset
-    var reason = live.spent ? "spent"
-      : dry ? "dry"
-      : live.used >= 0.70 ? "used"
-      : live.over && live.behind > 0.05 && ratio > weekRatio ? "pace"
-      : ""
-    if (reason === "") return calm
-    return { hot: true, reason: reason,
-             // Escalation, so an answered warning re-opens when it gets worse.
-             stage: live.spent ? 4 : live.used >= 0.9 ? 3 : dry ? 2 : 1,
-             used: live.used, ratio: ratio, behind: live.behind, resetsMs: reset, leftMs: live.leftMs,
-             dryAt: dry ? dryAt : 0, comeBackAt: live.comeBackAt, comeBackMs: live.comeBackMs,
-             spent: live.spent }
+    if (!live.spent && !dry) return calm
+    return { hot: true, reason: live.spent ? "spent" : "dry",
+             stage: live.spent ? 4 : live.over ? 2 : 1,
+             used: live.used, ratio: ratio, resetsMs: reset,
+             dryAt: dry ? dryAt : 0, spent: live.spent }
   }
-  // The strip chip's words for a hot 5-hour window. Every form names the
-  // 5-hour window, because "CLAUDE REST 2H" already means the week. Pure.
+  // Which warning the strip carries when the week and the 5-hour window both
+  // have one. A week that is spent or way over (stage 2 and up) is the wall
+  // already, so it keeps the chip and the one pulse; the 5-hour window
+  // outranks only a week that is merely over pace, or none, because it locks
+  // Claude out in hours and that week in days. Pure, so it is tested.
+  function sessionOutranks(weekStage, heat) {
+    return !!(heat && heat.hot) && !(Number(weekStage) >= 2)
+  }
+  // The strip chip's words for a hot 5-hour window, counted down from nowMs,
+  // the present. Every form names the 5-hour window, because "CLAUDE REST 2H"
+  // already means the week. Once the dry moment has passed and the collector
+  // has not re-measured yet, the window is running out now, not "in 1M". Pure.
   function sessionChipWords(heat, nowMs) {
     if (!heat || !heat.hot) return { text: "", short: "", third: "", mult: "" }
     var now = Number(nowMs) || Date.now()
-    var word = heat.reason === "spent" ? "SPENT, BACK " + spanShort(heat.leftMs)
-      : heat.reason === "dry" ? "OUT IN " + spanShort(heat.dryAt - now)
-      : heat.reason === "pace" ? "REST " + spanShort(heat.comeBackMs)
-      : Math.round(heat.used * 100) + "% USED"
-    var brief = heat.reason === "spent" ? "BACK " + spanShort(heat.leftMs)
-      : heat.reason === "dry" ? "OUT " + spanShort(heat.dryAt - now)
-      : heat.reason === "pace" ? "REST " + spanShort(heat.comeBackMs)
-      : Math.round(heat.used * 100) + "%"
+    var outIn = heat.dryAt - now
+    var word = heat.reason === "spent" ? "SPENT, BACK " + spanShort(heat.resetsMs - now)
+      : outIn > 0 ? "OUT IN " + spanShort(outIn) : "RUNNING OUT"
+    var brief = heat.reason === "spent" ? "BACK " + spanShort(heat.resetsMs - now)
+      : outIn > 0 ? "OUT " + spanShort(outIn) : "OUT NOW"
     return { text: "CLAUDE 5-HOUR  " + word, short: "5H " + brief,
              third: "5H " + (heat.reason === "spent" ? "SPENT" : Math.round(heat.used * 100) + "%"),
              mult: "5H" }

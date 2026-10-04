@@ -1499,10 +1499,10 @@ Panel {
       }
 
       // ── the 5-hour window, only while it is the one that bites ─────────
-      // Calm, it stays behind the 5-hour switch in SETUP. Hot (spent, running
-      // dry before its reset, 70% gone, or further over pace than the week),
-      // it is on the card whatever the switch says: how much, when it resets
-      // by the clock and counting down, and the same verdict the week gets.
+      // Calm, it stays behind the 5-hour switch in SETUP. Hot (spent, or
+      // running dry before its reset at the measured rate), it is on the card
+      // whatever the switch says: how much, when it resets by the clock and
+      // counting down, and the same verdict the week gets.
       Rectangle {
         id: shortWindow
         readonly property var heat: card.agent === "claude" ? panel.widget.claudeSessionHeat : null

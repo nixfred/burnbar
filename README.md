@@ -117,11 +117,13 @@ window rolls over. With nothing to warn about it names the sub to use next, in
 that sub's colour. Turn the advice off in SETUP if you only want warnings.
 
 Claude's 5-hour window gets the chip too, the moment it is the one that bites:
-spent (`CLAUDE 5-HOUR  SPENT, BACK 2H`), running dry before its reset at the
-measured rate (`OUT IN 40M`), 70% or more gone (`82% USED`), or further over
-its own even pace than the week is (`REST 25M`). It outranks a weekly warning,
-because it locks you out in hours and a week takes days, and while it shows it
-is the only thing on the strip or in the cockpit that pulses.
+running dry before its reset at the measured rate (`CLAUDE 5-HOUR  OUT IN 40M`,
+then `RUNNING OUT` once that moment passes) or spent (`SPENT, BACK 2H`). How
+much is gone and how far over pace it is are not reasons on their own: 70% with
+the clock on its side is not news. It outranks a week that is merely over pace,
+because it locks you out in hours and a week takes days; a week that is spent
+or way over keeps the chip, because that wall is already up. While the 5-hour
+chip shows it is the only thing on the strip or in the cockpit that pulses.
 
 ![Hovering a lane: the numbers, then where that sub stands](docs/img/tooltips.png)
 

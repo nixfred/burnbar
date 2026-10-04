@@ -11,7 +11,7 @@
   rate runs it dry before the reset, or it is spent. How much is gone and how
   far over its even pace it is are not reasons on their own. Hot, it is on the
   Claude card even with the switch off (how much is gone, the reset by the
-  clock and counting down, and the week's OVER / WAY OVER verdict when the
+  clock and counting down, and its own OVER / WAY OVER verdict when its
   ratio earns it, otherwise RUNNING DRY or SPENT; with the switch on the
   regular 5-hour row already lists it) and the strip chip names it: `CLAUDE 5-HOUR  OUT IN 40M`, `RUNNING OUT` once
   that moment has passed, or `SPENT, BACK 2H`, every countdown from the present

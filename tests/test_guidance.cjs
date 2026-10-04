@@ -21,7 +21,7 @@ function extract(name) {
   }
   throw new Error('unbalanced braces in ' + name);
 }
-for (const f of ['paceLive', 'guidePick', 'spanWords', 'clockSpan', 'spanShort']) vm.runInContext(extract(f), ctx);
+for (const f of ['paceLive', 'guidePick', 'guideBlocked', 'sessionHeat', 'spanWords', 'clockSpan', 'spanShort']) vm.runInContext(extract(f), ctx);
 
 const HOUR = 3600e3, DAY = 24 * HOUR, WEEK = 7 * DAY, MONTH = 30 * DAY;
 const NOW = 1_800_000_000_000;
@@ -209,4 +209,36 @@ test('spans read like advice, not like a stopwatch', () => {
   assert.equal(ctx.spanWords(2 * DAY), '2d');
   assert.equal(ctx.spanWords(20e3), 'under a minute');
   assert.equal(ctx.spanWords(NaN), 'under a minute');
+});
+
+test('a hot 5-hour window keeps Claude out of the advice, so the strip never warns and recommends at once', () => {
+  // Claude's week is 20% banked and Codex's 5%, so Claude would be the pick.
+  // But Claude's 5-hour window is 60% gone with 2.5h left and the measured
+  // rate runs it dry in 80 minutes, before its reset: it is hot, and the
+  // cockpit must not say "Keep using Claude" under a RUNNING DRY row.
+  const SESSION = 5 * HOUR, MIN = 60e3;
+  const claudeWeek = win(0.30, 0.50), codexWeek = win(0.45, 0.50);
+  const session = (dryAt) => ({ label: 'Session (5-hour)', percent: 0.60,
+    pace: { resetsMs: NOW + SESSION * 0.5, windowMs: SESSION, dryAt } });
+  const hot = ctx.sessionHeat(session(NOW + 80 * MIN), claudeWeek, NOW);
+  assert.equal(hot.hot, true);
+  // Nothing else blocks it: 60% is under the 90% line and 80 minutes is well
+  // past the half-hour that sessionBlock watches.
+  const rows = (heat) => [
+    { id: 'claude', live: claudeWeek, fresh: true, blocked: ctx.guideBlocked('claude', false, heat) },
+    { id: 'codex', live: codexWeek, fresh: true, blocked: ctx.guideBlocked('codex', false, heat) },
+  ];
+  const g = ctx.guidePick(rows(hot), '');
+  assert.notEqual(g.pick, 'claude');
+  assert.equal(g.pick, 'codex');
+  // Even when Claude was the standing pick, it is dropped.
+  assert.equal(ctx.guidePick(rows(hot), 'claude').pick, 'codex');
+  // Calm, the same numbers pick Claude: the heat is the whole difference.
+  const calm = ctx.sessionHeat(session(0), claudeWeek, NOW);
+  assert.equal(calm.hot, false);
+  assert.equal(ctx.guidePick(rows(calm), '').pick, 'claude');
+  // Only Claude's window is watched here; a full window still blocks anyone.
+  assert.equal(ctx.guideBlocked('codex', false, hot), false);
+  assert.equal(ctx.guideBlocked('codex', true, calm), true);
+  assert.equal(ctx.guideBlocked('claude', false, null), false);
 });

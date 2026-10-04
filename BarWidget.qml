@@ -1302,10 +1302,18 @@ BarWidget {
       if (!subMeta(id).present || !focusOk(id)) continue
       // A snapshot cannot be re-measured, so it has to be further ahead before it
       // is worth acting on, and further still once it has been used since.
-      rows.push({ id: id, live: liveFor(id, now), fresh: true, blocked: sessionBlock(id) > 0,
+      rows.push({ id: id, live: liveFor(id, now), fresh: true,
+                  blocked: guideBlocked(id, sessionBlock(id) > 0, claudeSessionHeat),
                   minBank: !isSnapshot(id) ? 0 : snapshotOutrun(id) ? 0.25 : 0.10 })
     }
     guidance = guidePick(rows, guidance ? guidance.pick : "")
+  }
+  // A sub the advice must not send anyone to. Claude's hot 5-hour window counts
+  // as well as a full one, so the strip never warns that Claude is running dry
+  // and recommends Claude in the same breath: one rule decides whether that
+  // window bites. Pure, so it is tested.
+  function guideBlocked(id, sessionBlocked, heat) {
+    return !!sessionBlocked || (id === "claude" && !!(heat && heat.hot))
   }
   Timer { interval: 30000; running: true; repeat: true; triggeredOnStart: true; onTriggered: root.refreshGuidance() }
   Connections {

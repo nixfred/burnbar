@@ -1503,9 +1503,9 @@ Panel {
       // Calm, it stays behind the 5-hour switch in SETUP. Hot (spent, or
       // running dry before its reset at the measured rate), it is on the card
       // even with the switch off: how much, when it resets by the clock and
-      // counting down, and the week's OVER / WAY OVER verdict when the ratio
-      // earns it, otherwise why it is hot. With the switch on the regular row
-      // above already lists it, so this one stands down.
+      // counting down, and its own OVER / WAY OVER verdict when its ratio
+      // earns it, otherwise why it is hot. With the switch on the regular rows
+      // below already list it, so this one stands down.
       Rectangle {
         id: shortWindow
         readonly property var heat: card.agent === "claude" ? panel.widget.claudeSessionHeat : null

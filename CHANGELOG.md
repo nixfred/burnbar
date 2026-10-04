@@ -34,6 +34,47 @@
   No QML changes; the variable reaches the collector through the environment
   the shell already passes to it, the way `GROK_HOME` does.
 
+## 2.2.3 (2026-10-02)
+
+### Fixed
+- **You can screenshot the open panel again.** Since 2.1.1 the panel took the
+  keyboard back 30ms after any focus loss, so Esc could not fall through to the
+  terminal under it. slurp takes the keyboard the same way, and Hyprland sends
+  the mouse to whichever exclusive layer grabbed last, so the panel landed in
+  front of the picker and a drag over it saved a 19x17 px image. The panel now
+  counts the layers other clients open while it is up (slurp, hyprpicker, the
+  Omarchy menu, clipboard), leaves the keyboard alone while any is open, and
+  takes it back when the last one closes. Other plugins were never affected
+  because they never had the Esc guard.
+
+## 2.2.2 (2026-10-02)
+
+### Fixed
+- **The card's reset line no longer logs a TypeError.** 2.2.1's "bonus reset"
+  caption read the card's primary window twice, and the window can go null a
+  beat before the budget flag follows it, so the shell journal got
+  `BurnPanel.qml:1530 TypeError: Value is null` every half hour or so on both
+  hosts. The caption now holds the window in a local and checks it.
+
+## 2.2.1 (2026-10-01)
+
+### Fixed
+- **A surprise reset no longer reads as a week of banked budget.** Now and then
+  a provider wipes the meter mid-window and leaves the reset date where it was:
+  Claude did it on Thu 2026-10-01 at 8:38 PM, weekly 53% to 0%, reset still
+  Sunday 6:00 AM. Burn Bar kept pacing the fresh plan against the whole week, so
+  three hours later 11% used read as "55% banked" when it was really 11% spent
+  in the first 5% of what the plan now has to cover. The collector spots the
+  fall (the percentage drops by 3 points or more while the reset stays put) and
+  re-bases the window on that moment: an even spend runs from the gift to the
+  normal reset, so banked, come back in, the pace verdict, today's share and USE
+  NEXT all answer for the plan you actually have.
+- The burndown graph starts at the gift instead of drawing the wiped usage and a
+  cliff, and "today" is counted from the gift instead of from midnight.
+- The card says so: `bonus reset Thu 8:38 PM` beside the reset countdown.
+- A reset that moves the date with it (Codex, Tue 2026-09-29) was already right:
+  that is a new window and is paced as one.
+
 ## 2.2.0 (2026-09-25)
 
 Thanks [@ianswope](https://github.com/ianswope) for this one (PR #2).

@@ -5,6 +5,7 @@ import QtQuick.Shapes
 import QtQuick.Effects
 import Quickshell
 import Quickshell.Io
+import Quickshell.Hyprland
 import qs.Commons
 import qs.Ui
 
@@ -1526,8 +1527,17 @@ Panel {
               Layout.fillWidth: true
               text: {
                 void panel.tick
-                if (card.budgetHero)
-                  return panel.widget.compact(card.total) + " tokens  ·  resets in " + panel.untilText(card.primary.resetsAt)
+                // Held in a local: primary can go null a beat before budgetHero
+                // follows it, and reading it twice logged a TypeError each time.
+                var primary = card.primary
+                if (card.budgetHero && primary) {
+                  // A surprise reset mid-window: say so, or a week that reads
+                  // 11% on a Thursday night looks like a broken meter.
+                  var gift = card.pace ? Number(card.pace.giftAt) || 0 : 0
+                  return panel.widget.compact(card.total) + " tokens  ·  "
+                    + (gift > 0 ? "bonus reset " + Qt.formatDateTime(new Date(gift), "ddd h:mm AP") + "  ·  " : "")
+                    + "resets in " + panel.untilText(primary.resetsAt)
+                }
                 if (card.primary && !card.primaryUnknown)
                   return Math.round(Number(card.primary.percent) * 100) + "% of " + panel.windowShort(card.primary.label)
                     + "  ·  resets in " + panel.untilText(card.primary.resetsAt)
@@ -1772,10 +1782,51 @@ Panel {
         interval: 30
         onTriggered: {
           if (!panel.opened || keyCatcher.windowActive) return
+          if (keyCatcher.foreignLayerCount > 0) return
           kpanel.focusPrimed = false
           kpanel.beginFocusPrime()
           keyCatcher.forceActiveFocus()
         }
+      }
+
+      // Fred, 2026-10-02: "it can screenshot other plugins but not Burn Bar."
+      // Theft and a handover look the same from in here (Window.active drops),
+      // but slurp, hyprpicker, the Omarchy menu and clipboard take the keyboard
+      // on purpose with an Exclusive layer of their own. Hyprland routes the
+      // pointer to whichever Exclusive layer grabbed LAST, so re-priming 30ms
+      // after slurp mapped put this panel in front of it: slurp never saw a
+      // mouse button and the screenshot came out 19x17 px. Count the layers
+      // other clients open while we are up; while any is still open the
+      // keyboard is theirs, and when the last one closes we take it back.
+      // The shell's own passive layers (bar, OSD, toasts, our dismiss twins)
+      // never hold the keyboard, so they are not counted.
+      property var foreignLayers: ({})
+      readonly property int foreignLayerCount: Object.keys(foreignLayers).length
+      readonly property var passiveLayers: ["omarchy-keyboard-panel", "omarchy-keyboard-panel-dismiss",
+        "omarchy-bar", "omarchy-bar-drag-ghost", "omarchy-bar-move-ghost", "omarchy-background",
+        "omarchy-osd", "omarchy-notifications", "omarchy-hotcorner"]
+      Connections {
+        target: Hyprland
+        function onRawEvent(event) {
+          if (event.name !== "openlayer" && event.name !== "closelayer") return
+          var ns = String(event.data)
+          if (keyCatcher.passiveLayers.indexOf(ns) >= 0) return
+          var seen = Object.assign({}, keyCatcher.foreignLayers)
+          if (event.name === "openlayer") {
+            if (!panel.opened) return
+            seen[ns] = (seen[ns] || 0) + 1
+          } else {
+            if (!(ns in seen)) return
+            if (--seen[ns] <= 0) delete seen[ns]
+          }
+          keyCatcher.foreignLayers = seen
+          if (event.name === "closelayer" && Object.keys(seen).length === 0 && panel.opened && !keyCatcher.windowActive)
+            refocusTimer.restart()
+        }
+      }
+      Connections {
+        target: panel
+        function onOpenedChanged() { keyCatcher.foreignLayers = ({}) }
       }
       onTabRequested: direction => panel.switchPanel(direction)
       onTextKey: function(text) {

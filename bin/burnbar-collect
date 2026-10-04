@@ -1540,13 +1540,35 @@ def window_id(resets_ms):
 
 SERIES_MAX_POINTS = 48
 
+GIFT_MIN_DROP = 0.03                   # a provider restating 41% as 40% is not a gift
+GIFT_ID_SLACK_MS = 2 * 60_000          # the same reset, restated a minute either side
 
-def burndown_series(points, resets, window, pct_now):
+
+def gift_reset_at(points, resets, pct_now):
+    """When the provider last wiped this window's usage WITHOUT moving its reset.
+    Fred, 2026-10-01: "every once in a while the AI gods get really friendly ...
+    your tokens reset back to zero until your next normal reset." Claude did it
+    on Thu 2026-10-01 20:38: weekly 53% -> 0% with the reset still Sunday 06:00.
+    A percentage only ever climbs inside one window, so a real fall while the
+    reset stays put is that gift, and the whole plan now has to last only from
+    that moment to the reset. 0 when there has been none. The moment is the
+    first sample AFTER the fall: the later bound, so nothing is banked that the
+    clock has not really earned."""
+    mine = [(t, p) for t, p, r in points if abs(r - resets) <= GIFT_ID_SLACK_MS and t <= now_ms]
+    mine.append((now_ms, float(pct_now)))
+    at = 0
+    for i in range(1, len(mine)):
+        if mine[i][1] < mine[i - 1][1] - GIFT_MIN_DROP + 1e-9:
+            at = mine[i][0]
+    return int(at)
+
+
+def burndown_series(points, resets, window, pct_now, since=0):
     """This window's own samples as [x, y] pairs in 0..1, thinned to at most
     SERIES_MAX_POINTS and always ending on the present moment, so the line the
     card draws stops exactly where the hero number says you are."""
     start = resets - window
-    mine = [(t, p) for t, p, r in points if r == resets and start <= t <= now_ms]
+    mine = [(t, p) for t, p, r in points if r == resets and max(start, since) <= t <= now_ms]
     if len(mine) > SERIES_MAX_POINTS - 1:
         step = len(mine) / float(SERIES_MAX_POINTS - 1)
         mine = [mine[int(i * step)] for i in range(SERIES_MAX_POINTS - 1)]
@@ -1572,7 +1594,11 @@ def pace_for(row, key, live):
            # The burndown the 2.0 cards draw: [[x, y]] with x the fraction of
            # the window elapsed and y the fraction of the plan spent, so the
            # even-pace line is simply the diagonal and "above it" means over.
-           "series": []}
+           "series": [],
+           # A surprise reset inside this window: when it landed, and how long
+           # the window is on paper. windowMs is then what is left to budget
+           # across, gift to reset, so every clock downstream re-bases itself.
+           "giftAt": 0, "fullWindowMs": 0}
     if not isinstance(pct, (int, float)) or pct < 0 or not resets:
         return out
     points = PACE["samples"].get(key) or []
@@ -1584,9 +1610,17 @@ def pace_for(row, key, live):
     left_ms = resets - now_ms
     if window <= 0 or left_ms <= 0:
         return out
+    out["fullWindowMs"] = window
+    gift = gift_reset_at(points, resets, pct)
+    if gift and resets - window < gift < resets:
+        # Same reset date, brand new plan: an even spend now runs from the gift
+        # to the reset, and what was burned before it is no longer owed.
+        out["giftAt"] = gift
+        window = resets - gift
+        points = [p for p in points if p[0] >= gift]
     out["windowMs"] = window
     out["resetsMs"] = int(resets)
-    out["series"] = burndown_series(points, resets, window, pct)
+    out["series"] = burndown_series(points, resets, window, pct, gift)
     elapsed = min(1.0, max(0.0, (window - left_ms) / float(window)))
     out["elapsed"] = elapsed
     hours_left = left_ms / 3600_000.0
@@ -1626,7 +1660,9 @@ def pace_for(row, key, live):
                 out["stopAtMs"] = int(now_ms + hours * 3600_000)
 
     if window >= DAILY_MIN_WINDOW_MS:
-        midnight = local_midnight_ms()
+        # After a gift, today starts at the gift: midnight's figure belongs to
+        # the plan that was wiped.
+        midnight = max(local_midnight_ms(), out["giftAt"])
         before = [p for p in points if p[0] <= midnight and p[2] == resets]
         if before:
             at_midnight = before[-1][1]

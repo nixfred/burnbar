@@ -20,11 +20,6 @@ files you worked on. There is no way to count per-turn tokens without reading
 them, because the token counts are interleaved with the conversation. If you
 are not comfortable with a bar widget opening those files, do not install this.
 
-When `BURNBAR_EXTRA_HOMES` is set, the collector additionally opens the same
-transcripts under every `$HOME`-shaped root it names, typically rsync mirrors
-of these very files from your other machines. Burn Bar never fetches them
-itself and never writes to them; whatever put them there did.
-
 **Burn Bar also logs in to another machine, but only when a compute GPU
 exists and `localHost` is not this machine.** Intel integrated graphics does
 not count. On a GPU-less laptop there is no ssh, no Ollama poll, and no
@@ -48,8 +43,8 @@ prompt, never the reply. The journal line is the whole record.
 
 1. `bin/burnbar-collect` (Python 3, standard library only) reads each line and
    keeps: a timestamp, token counts split into input, cache write, output and
-   cache read, the model name, and, for Claude, the opaque `message.id`
-   used to deduplicate streamed records.
+   cache read, the model name, and the opaque Claude `message.id` or full
+   Zcode `requestId` used to deduplicate records.
 2. No prompt text, reply text, or file content from inside a conversation is
    extracted, stored, or displayed. The scan cache does key on the absolute
    transcript path, and Claude's transcript paths include the project

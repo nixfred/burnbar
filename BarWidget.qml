@@ -1808,18 +1808,22 @@ BarWidget {
       readonly property real zcodeSepSpace: root.zcodeExtra ? graph.grokSep : 0
       readonly property real inner: Math.max(1, width - localWidth - ruleWidth
         - gaugesSpace - dividerSpace - grokSepSpace - kimiSepSpace - zcodeSepSpace)
-      readonly property real extraGrokW: root.grokExtra
-        ? Math.max(Style.space(10), Math.round(inner * 0.16)) : 0
+      // Keep the pair's added lanes narrow, but never reserve more than
+      // an equal share when the strip is squeezed.
+      readonly property real narrowWidth: Math.min(inner / Math.max(1, root.cloudAgents),
+        Math.max(Style.space(10), Math.round(inner * 0.16)))
+      readonly property real extraGrokW: root.grokExtra ? narrowWidth : 0
       // Kimi takes the same narrow band as Grok. Every term here is 0 while the
       // lane is hidden, so a strip without Kimi lays out exactly as before.
-      readonly property real extraKimiW: root.kimiExtra
-        ? Math.max(Style.space(10), Math.round(inner * 0.16)) : 0
+      readonly property real extraKimiW: root.kimiExtra ? narrowWidth : 0
       // Zcode takes the same narrow band as Kimi and Grok.
-      readonly property real extraZcodeW: root.zcodeExtra
-        ? Math.max(Style.space(10), Math.round(inner * 0.16)) : 0
+      readonly property real extraZcodeW: root.zcodeExtra ? narrowWidth : 0
       readonly property real pairInner: Math.max(1, inner - extraGrokW - extraKimiW - extraZcodeW)
-      readonly property real sideWidth: root.cloudAgents <= 1 ? pairInner
-        : Math.max(1, pairInner / 2)
+      // Without the Claude/Codex pair there can still be three or more
+      // full lanes. Divide by every visible lane not already reserved above.
+      readonly property int fullLaneCount: root.cloudAgents - (root.grokExtra ? 1 : 0)
+        - (root.kimiExtra ? 1 : 0) - (root.zcodeExtra ? 1 : 0)
+      readonly property real sideWidth: pairInner / Math.max(1, fullLaneCount)
       readonly property real claudeLaneWidth: !root.showClaude ? 0
         : root.cloudAgents === 1 ? pairInner : sideWidth
       readonly property real codexLaneWidth: !root.showCodex ? 0

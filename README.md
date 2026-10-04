@@ -309,27 +309,6 @@ live:
 - **Grok**: `~/.grok/sessions/**/updates.jsonl`, `_meta.totalTokens` rise per
   `promptId` (estimate; Grok leaves no full API ledger). Weekly credits from
   `~/.grok/logs/unified.jsonl` billing snapshots.
-- **Other machines**: `BURNBAR_EXTRA_HOMES` names colon-separated
-  `$HOME`-shaped roots besides this one: rsync mirrors of other boxes, laid
-  out as `<mirror>/.claude/projects`, `<mirror>/.codex/sessions`,
-  `<mirror>/.grok/sessions`. Their transcripts count toward the same lanes,
-  because a subscription burned from three machines is still one
-  subscription. Roots are stripped and de-duplicated by real path, so a root
-  listed twice (or once plus a symlink to it) still counts once. Claude's
-  `message.id` dedupe holds across every root, so a mirror that lags behind
-  the machine it mirrors adds nothing wrong; Codex and Grok keep per-file
-  state, so a mirror must not repeat sessions this machine already holds. A
-  root that does not exist is simply absent. Keep a mirror fresh with
-  `rsync -a otherbox:.claude/projects/ mirror/.claude/projects/`; `-a`
-  matters, the scanner trusts file mtimes. Set the variable wherever your
-  graphical session builds its environment (`~/.config/environment.d/` on
-  Omarchy, before the shell starts), and use something that produces plain
-  files: a hung network mount can stall the collector in a way the widget's
-  watchdog cannot clean up after. Two side effects worth knowing: a machine
-  whose lanes are present only through mirrors still refreshes this
-  machine's own limit records, and mirrored Grok file times feed the Grok
-  "used since" wording. Plan limits stay read from this machine's own
-  records, where the sign-ins live.
 - **Zcode**: `~/.zcode/cli/rollout/model-io-sess_*.jsonl`, one line per
   completed model request with its own usage object and the model id that
   served it. zcode's inputTokens is a bundle (input plus cache write plus
@@ -339,9 +318,12 @@ live:
   already counted survive their file being truncated or deleted until they
   age out of the window, de-duplicated by request id. Burn only: no plan
   meter is read (Z.ai's quota endpoint is undocumented), so the lane has no
-  limits rows and no pace advice. Rides `BURNBAR_EXTRA_HOMES` with the rest
-  (`.zcode/cli/rollout` under each root); the older `agents/*` transcript
-  store is not read.
+  limits rows and no pace advice. Only this machine's rollout directory is
+  read; the older `agents/*` transcript store is not read. Request IDs must
+  be nonempty strings without control characters; unusable IDs are skipped
+  with one warning per file scan, and full IDs are kept for deduplication.
+  Upgrading from the earlier Zcode cache rebuilds this lane from disk;
+  already-deleted legacy rollouts cannot recover their full IDs and are dropped.
 
 - **Limits**: read straight off the records `omarchy-agent-usage-update` keeps
   in `~/.local/state/omarchy/agents/usage/`. Burn Bar keeps those records

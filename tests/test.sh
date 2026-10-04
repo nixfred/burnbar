@@ -86,11 +86,18 @@ command -v node >/dev/null && {
 node tests/test_lane_cap.cjs >/dev/null 2>&1 \
   || fail "lane cap tests"
 ok "the strip's ceiling is one physical allowance per visible lane, floor wins"
+node tests/test_lane_allocation.cjs >/dev/null 2>&1 \
+  || fail "lane allocation tests"
+ok "all visible cloud-lane subsets fit the strip"
 node tests/test_guidance.cjs >/dev/null 2>&1 \
   || fail "guidance tests"
 ok "guidance: banked only when ahead, a way back when behind, a pick only with a choice, never local"
   ok "theme palette parses, hues are in range, every lane has a fallback key"
 }
+
+python3 -m unittest discover -s tests -p 'test_zcode.py' -q \
+  || fail "Zcode identity and retention"
+ok "Zcode identity, warm cache, local-only roots and retention"
 
 # --help is a question, not a run: it must describe the flags and exit without
 # creating a state directory or touching history.json.
@@ -512,88 +519,17 @@ jq -e '.local.available == false and (.local.reason | test("GPU"))' "$out" >/dev
   || fail "--no-local still counted local tokens: $(jq -c '.local | {available, reason, total}' "$out")"
 ok "--no-local skips the meter and reports no GPU"
 
-# ── extra homes: burn mirrored from other machines ───────────────────────────
-# BURNBAR_EXTRA_HOMES names $HOME-shaped roots besides the real one. Their
-# transcripts must land in the same lanes, a Claude message.id shared by two
-# roots must still count once (the larger revision wins, wherever it lives),
-# and a mirror the env does not name must contribute nothing at all.
-other="$tmp/other-home"
-mkdir -p "$other/.claude/projects/q" "$other/.codex/sessions/2026/09/03" "$other/.grok/sessions/s2"
-printf '{"timestamp":"%s","message":{"id":"msg_remote","model":"claude-test","usage":{"input_tokens":0,"cache_creation_input_tokens":0,"output_tokens":700}}}\n' \
-  "$now_iso" > "$other/.claude/projects/q/r.jsonl"
-printf '{"timestamp":"%s","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":600,"cached_input_tokens":200,"cache_write_input_tokens":0,"output_tokens":100}}}}\n' \
-  "$now_iso" > "$other/.codex/sessions/2026/09/03/rollout-r.jsonl"
-printf '%s\n' \
-  '{"timestamp":'"$BURNBAR_NOW_MS"',"method":"session/update","params":{"_meta":{"totalTokens":500,"promptId":"r1","turnStartMs":'"$BURNBAR_NOW_MS"'}}}' \
-  '{"timestamp":'"$BURNBAR_NOW_MS"',"method":"session/update","params":{"_meta":{"totalTokens":2000,"promptId":"r1","turnStartMs":'"$BURNBAR_NOW_MS"'}}}' \
-  > "$other/.grok/sessions/s2/updates.jsonl"
-cl_before=$(jq -r '.claude.total' "$out"); xt_before=$(jq -r '.codex.total' "$out"); gt_before=$(jq -r '.grok.total' "$out")
-BURNBAR_EXTRA_HOMES="$other" BURNBAR_METER_JOURNAL="$tmp/journal-empty.txt" \
-  HOME="$fake_home" GROK_HOME="$fake_home/.grok" python3 bin/burnbar-collect --window 360 --buckets 12
-[ "$(jq -r '.claude.total' "$out")" = "$(( cl_before + 700 ))" ] \
-  || fail "mirror claude burn missing: $(jq -r '.claude.total' "$out") != $(( cl_before + 700 ))"
-[ "$(jq -r '.codex.total' "$out")" = "$(( xt_before + 500 ))" ] \
-  || fail "mirror codex burn missing: $(jq -r '.codex.total' "$out") != $(( xt_before + 500 ))"
-[ "$(jq -r '.grok.total' "$out")" = "$(( gt_before + 1500 ))" ] \
-  || fail "mirror grok burn missing: $(jq -r '.grok.total' "$out") != $(( gt_before + 1500 ))"
-jq -e '.presence.claude == true and .presence.codex == true and .presence.grok == true' "$out" >/dev/null \
-  || fail "presence lost with extra homes: $(jq -c '.presence' "$out")"
-ok "extra homes land in the same lanes"
-
-# The same message.id in two roots is one turn. A rsync that has not caught up
-# can hold a smaller revision of a message the real $HOME already finished, so
-# the winner is the larger revision wherever it lives: 700, not 700 + 300.
-printf '{"timestamp":"%s","message":{"id":"msg_remote","model":"claude-test","usage":{"input_tokens":0,"cache_creation_input_tokens":0,"output_tokens":300}}}\n' \
-  "$now_iso" > "$fake_home/.claude/projects/p/x.jsonl"
-BURNBAR_EXTRA_HOMES="$other" BURNBAR_METER_JOURNAL="$tmp/journal-empty.txt" \
-  HOME="$fake_home" GROK_HOME="$fake_home/.grok" python3 bin/burnbar-collect --window 360 --buckets 12
-[ "$(jq -r '.claude.total' "$out")" = "$(( cl_before + 700 ))" ] \
-  || fail "a message.id in two roots was counted twice: $(jq -r '.claude.total' "$out") != $(( cl_before + 700 ))"
-ok "claude message.id dedupe holds across roots"
-
-# Appending a larger revision to the mirror swaps the winner (700 → 1600) and
-# still counts once; without the env the mirror is inert, cached points and
-# all, and the local 300-token revision is what remains.
-printf '{"timestamp":"%s","message":{"id":"msg_remote","model":"claude-test","usage":{"input_tokens":0,"cache_creation_input_tokens":0,"output_tokens":1600}}}\n' \
-  "$now_iso" >> "$other/.claude/projects/q/r.jsonl"
-BURNBAR_EXTRA_HOMES="$other" BURNBAR_METER_JOURNAL="$tmp/journal-empty.txt" \
-  HOME="$fake_home" GROK_HOME="$fake_home/.grok" python3 bin/burnbar-collect --window 360 --buckets 12
-[ "$(jq -r '.claude.total' "$out")" = "$(( cl_before + 1600 ))" ] \
-  || fail "the larger revision did not take over across roots: $(jq -r '.claude.total' "$out") != $(( cl_before + 1600 ))"
-BURNBAR_METER_JOURNAL="$tmp/journal-empty.txt" \
-  HOME="$fake_home" GROK_HOME="$fake_home/.grok" python3 bin/burnbar-collect --window 360 --buckets 12
-[ "$(jq -r '.claude.total' "$out")" = "$(( cl_before + 300 ))" ] \
-  || fail "an unnamed mirror contributed: $(jq -r '.claude.total' "$out") != $(( cl_before + 300 ))"
-ok "the larger revision wins across roots; an unnamed mirror contributes nothing"
-
-# The same root three ways (plain, /., through a symlink) is one root. Codex
-# and Grok keep per-file state, so without the real-path dedupe each extra
-# listing would count the whole mirror again; a missing root inside the list
-# and whitespace around an entry must both be harmless.
-ln -s "$other" "$tmp/other-link"
-BURNBAR_EXTRA_HOMES=" $other : $other/. : $tmp/does-not-exist : $tmp/other-link " \
-  BURNBAR_METER_JOURNAL="$tmp/journal-empty.txt" \
-  HOME="$fake_home" GROK_HOME="$fake_home/.grok" python3 bin/burnbar-collect --window 360 --buckets 12
-[ "$(jq -r '.codex.total' "$out")" = "$(( xt_before + 500 ))" ] \
-  || fail "a repeated root counted codex twice: $(jq -r '.codex.total' "$out") != $(( xt_before + 500 ))"
-[ "$(jq -r '.grok.total' "$out")" = "$(( gt_before + 1500 ))" ] \
-  || fail "a repeated root counted grok twice: $(jq -r '.grok.total' "$out") != $(( gt_before + 1500 ))"
-[ "$(jq -r '.claude.total' "$out")" = "$(( cl_before + 1600 ))" ] \
-  || fail "claude changed under a repeated root: $(jq -r '.claude.total' "$out")"
-ok "roots are stripped, missing roots are absent, a repeated root counts once"
 # ── zcode: one line per completed model request ──────────────────────────────
 # ~/.zcode/cli/rollout/model-io-sess_*.jsonl. Per-request usage (no cumulative
 # counter, no streamed revisions), so what the line says is what the lane
 # counts. zcode's inputTokens is a bundle (input + cache write + cache read),
 # so the heat is fresh input + cache write + output, cache reads carried in
-# the split but excluded, model attributed from the line itself. The first
-# line also lives in the LOCAL rollout root, to prove that path is walked
-# too; the rest are mirror-only.
-mkdir -p "$fake_home/.zcode/cli/rollout" "$other/.zcode/cli/rollout"
+# the split but excluded, model attributed from the line itself.
+mkdir -p "$fake_home/.zcode/cli/rollout"
 zlocal="$fake_home/.zcode/cli/rollout/model-io-sess_local.jsonl"
 printf '{"completedAt":"%s","requestId":"req_z1","attempt":1,"model":{"modelId":"glm-5.3"},"response":{"usage":{"inputTokens":400,"outputTokens":150,"totalTokens":550,"cacheReadTokens":300,"cacheWriteTokens":50}}}\n' \
   "$now_iso" > "$zlocal"
-zc="$other/.zcode/cli/rollout/model-io-sess_fixture.jsonl"
+zc="$fake_home/.zcode/cli/rollout/model-io-sess_fixture.jsonl"
 printf '{"completedAt":"%s","requestId":"req_z2","attempt":1,"model":{"modelId":"qwen3.8-27b"},"response":{"usage":{"inputTokens":100,"outputTokens":20,"totalTokens":120}}}\n' \
   "$now_iso" > "$zc"
 # Records whose usage is not counts are skipped, not fatal: a string, a bool,
@@ -609,7 +545,7 @@ printf '{"completedAt":"%s","requestId":"req_b7","response":{"usage":{"inputToke
 # The same requestId twice counts once.
 printf '{"completedAt":"%s","requestId":"req_z2","attempt":1,"model":{"modelId":"qwen3.8-27b"},"response":{"usage":{"inputTokens":100,"outputTokens":20,"totalTokens":120}}}\n' \
   "$now_iso" >> "$zc"
-BURNBAR_EXTRA_HOMES="$other" BURNBAR_METER_JOURNAL="$tmp/journal-empty.txt" \
+BURNBAR_METER_JOURNAL="$tmp/journal-empty.txt" \
   HOME="$fake_home" GROK_HOME="$fake_home/.grok" python3 bin/burnbar-collect --window 360 --buckets 12
 jq -e '.zcode.total == 370 and .zcode.turns == 2 and .zcode.sessions == 2
   and .zcode.byModel["glm-5.3"] == 250 and .zcode.byModel["qwen3.8-27b"] == 120
@@ -625,26 +561,36 @@ ok "zcode unbundles inputTokens: cache reads stay out of the heat, junk is skipp
 # is for.
 printf '{"completedAt":"%s","requestId":"req_z4","attempt":1,"model":{"modelId":"glm-5.3"},"response":{"usage":{"inputTokens":10,"outputTokens":5,"totalTokens":15}}}\n' \
   "$now_iso" > "$zc"
-BURNBAR_EXTRA_HOMES="$other" BURNBAR_METER_JOURNAL="$tmp/journal-empty.txt" \
+BURNBAR_METER_JOURNAL="$tmp/journal-empty.txt" \
   HOME="$fake_home" GROK_HOME="$fake_home/.grok" python3 bin/burnbar-collect --window 360 --buckets 12
 [ "$(jq -r '.zcode.total' "$out")" = "385" ] \
   || fail "a truncated rollout lost its earlier requests: $(jq -r '.zcode.total' "$out") != 385"
 ok "a truncated rollout keeps the requests it already counted"
 
 rm -f "$zc"
-BURNBAR_EXTRA_HOMES="$other" BURNBAR_METER_JOURNAL="$tmp/journal-empty.txt" \
+BURNBAR_METER_JOURNAL="$tmp/journal-empty.txt" \
   HOME="$fake_home" GROK_HOME="$fake_home/.grok" python3 bin/burnbar-collect --window 360 --buckets 12
 [ "$(jq -r '.zcode.total' "$out")" = "385" ] && [ "$(jq -r '.presence.zcode' "$out")" = "true" ] \
   || fail "a deleted rollout lost its requests or its presence: total $(jq -r '.zcode.total' "$out"), presence $(jq -r '.presence.zcode' "$out")"
-ok "a deleted rollout keeps counting until the window ages it out"
+ok "a deleted rollout retains its requests inside the window"
 
-# Without the env, the mirror's zcode root is absent and only the local file
-# remains.
-BURNBAR_METER_JOURNAL="$tmp/journal-empty.txt" \
-  HOME="$fake_home" GROK_HOME="$fake_home/.grok" python3 bin/burnbar-collect --window 360 --buckets 12
-jq -e '.zcode.total == 250 and .presence.zcode == true' "$out" >/dev/null \
-  || fail "zcode without the extra home should be the local 250: $(jq -c '.zcode' "$out")"
-ok "an unnamed zcode mirror contributes nothing"
+# Advance past the six-hour display window, then the 25-hour cache horizon.
+# Use a copied state dir so later fixtures retain the original pinned clock.
+expiry_state="$tmp/expiry-state"
+cp -a "$XDG_STATE_HOME" "$expiry_state"
+BURNBAR_NOW_MS=$(( BURNBAR_NOW_MS + 6 * 3600 * 1000 + 1 )) \
+  XDG_STATE_HOME="$expiry_state" HOME="$fake_home" GROK_HOME="$fake_home/.grok" \
+  python3 bin/burnbar-collect --no-local --window 360 --buckets 12
+jq -e '.zcode.total == 0 and .zcode.turns == 0' \
+  "$expiry_state/omarchy/burnbar/history.json" >/dev/null \
+  || fail "deleted rollout still contributes after the window"
+BURNBAR_NOW_MS=$(( BURNBAR_NOW_MS + 25 * 3600 * 1000 + 1 )) \
+  XDG_STATE_HOME="$expiry_state" HOME="$fake_home" GROK_HOME="$fake_home/.grok" \
+  python3 bin/burnbar-collect --no-local --window 360 --buckets 12
+jq -e --arg file "$zc" '.files | has($file) | not' \
+  "$expiry_state/omarchy/burnbar/scan-cache.json" >/dev/null \
+  || fail "deleted rollout still cached after the retention horizon"
+ok "a deleted rollout ages out of both the display window and cache retention"
 
 # A machine that only has Grok must not claim Claude or Codex are present.
 grok_only="$tmp/grok-only"

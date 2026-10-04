@@ -84,35 +84,6 @@ ZCODE_ROOT = HOME / ".zcode" / "cli" / "rollout"
 GROK_HOME = Path(os.environ.get("GROK_HOME") or HOME / ".grok")
 GROK_ROOT = GROK_HOME / "sessions"
 GROK_LOG = GROK_HOME / "logs" / "unified.jsonl"
-# BURNBAR_EXTRA_HOMES: $HOME-shaped roots besides this one, colon-separated:
-# rsync mirrors of other machines, typically. A subscription burned from three
-# boxes is still one subscription, so their transcripts count toward the same
-# lanes. A root that does not exist is simply absent (walk() skips it), so a
-# mirror not synced yet costs nothing. Roots are stripped and de-duplicated by
-# real path (a root listed twice, or once plus a symlink to it, must not count
-# twice), which is the one overlap Claude's message.id dedupe does not cover:
-# Codex and Grok keep per-file state. Even so, a root must not repeat sessions
-# the real $HOME already holds. How the mirrors get there is not this
-# collector's business; plan limits stay read from this machine's own records.
-def _unique_roots(roots):
-    seen, out = set(), []
-    for r in roots:
-        try:
-            key = str(r.resolve())
-        except OSError:
-            key = str(r)
-        if key not in seen:
-            seen.add(key)
-            out.append(r)
-    return out
-
-
-EXTRA_HOMES = [Path(p.strip()).expanduser() for p in
-               (os.environ.get("BURNBAR_EXTRA_HOMES") or "").split(":") if p.strip()]
-CLAUDE_ROOTS = _unique_roots([CLAUDE_ROOT] + [h / ".claude" / "projects" for h in EXTRA_HOMES])
-CODEX_ROOTS = _unique_roots([CODEX_ROOT] + [h / ".codex" / "sessions" for h in EXTRA_HOMES])
-GROK_ROOTS = _unique_roots([GROK_ROOT] + [h / ".grok" / "sessions" for h in EXTRA_HOMES])
-ZCODE_ROOTS = _unique_roots([ZCODE_ROOT] + [h / ".zcode" / "cli" / "rollout" for h in EXTRA_HOMES])
 
 CACHE_VERSION = 2
 # A token count larger than this is not a token count.
@@ -168,10 +139,7 @@ clamp to the bounds above; an unrecognised flag is ignored rather than fatal,
 because a collector that exits leaves the widget with an empty strip.
 
 environment: BURNBAR_LOCAL_HOST, BURNBAR_METER_UNIT, BURNBAR_NO_LOCAL=1,
-             BURNBAR_LOCAL_LEDGER, GROK_HOME, BURNBAR_NOW_MS (tests pin the clock),
-             BURNBAR_EXTRA_HOMES (colon-separated $HOME-shaped roots, e.g. rsync
-             mirrors of other machines, whose transcripts count toward the same
-             lanes; plan limits still come from this machine's records)
+             BURNBAR_LOCAL_LEDGER, GROK_HOME, BURNBAR_NOW_MS (tests pin the clock)
 """
 
 # Before any argument is read or any state directory is touched, so that asking
@@ -509,12 +477,12 @@ def walk(root, match):
                 yield Path(dirpath) / name
 
 
-def walk_roots(roots, match):
-    for root in roots:
-        yield from walk(root, match)
+def usable_zcode_id(rid):
+    return (isinstance(rid, str) and bool(rid.strip())
+            and not any(ord(c) < 32 or ord(c) == 127 for c in rid))
 
 
-def zcode_extract(line, _state):
+def zcode_extract(line, state):
     """One line of a zcode model-io rollout: a completed model request with
     its own usage. Per-request counts, so there is no cumulative counter to
     difference (the Codex problem) and no streamed revisions to dedupe (the
@@ -554,8 +522,17 @@ def zcode_extract(line, _state):
         if fresh + cache_w + outputs == 0 and cache_r == 0:
             # An aborted request that never reached a model is not a turn.
             return None
+        rid = d.get("requestId")
+        if not usable_zcode_id(rid):
+            # Persist the warning flag with this file's scan state: many bad
+            # records and repeated polls must not flood the shell journal.
+            if not state.get("warnedZcodeId"):
+                print("burnbar-collect: Zcode skipped record with unusable requestId",
+                      file=sys.stderr)
+                state["warnedZcodeId"] = True
+            return None
         model = d.get("model") if isinstance(d.get("model"), dict) else {}
-        return [ts, fresh + cache_w + outputs, str(d.get("requestId") or "")[:64],
+        return [ts, fresh + cache_w + outputs, rid,
                 str(model.get("modelId") or "zcode")[:64], [fresh, cache_w, outputs, cache_r]]
     except MALFORMED:
         return None
@@ -633,7 +610,7 @@ def is_kimi_model(model):
 best = {}
 anonymous = []
 file_of = {}
-for f in walk_roots(CLAUDE_ROOTS, lambda n: n.endswith(".jsonl")):
+for f in walk(CLAUDE_ROOT, lambda n: n.endswith(".jsonl")):
     for pt in scan(f, claude_extract):
         try:
             mid = pt[2] if len(pt) > 2 else ""
@@ -665,7 +642,7 @@ claude.files = len(touched)
 kimi.files = len(kimi_touched)
 
 touched = set()
-for f in walk_roots(CODEX_ROOTS, lambda n: n.startswith("rollout-") and n.endswith(".jsonl")):
+for f in walk(CODEX_ROOT, lambda n: n.startswith("rollout-") and n.endswith(".jsonl")):
     for pt in scan(f, codex_extract):
         try:
             if codex.add(pt):
@@ -794,7 +771,7 @@ def scan_grok(path):
 
 grok = Agent("grok")
 touched = set()
-for f in walk_roots(GROK_ROOTS, lambda n: n == "updates.jsonl"):
+for f in walk(GROK_ROOT, lambda n: n == "updates.jsonl"):
     for pt in scan_grok(f):
         try:
             if grok.add(pt):
@@ -818,10 +795,9 @@ zcode_ids = set()
 
 def zcode_keep(pt, f):
     rid = pt[2] if len(pt) > 2 else ""
-    if rid:
-        if rid in zcode_ids:
-            return
-        zcode_ids.add(rid)
+    if not usable_zcode_id(rid) or rid in zcode_ids:
+        return
+    zcode_ids.add(rid)
     if zcode.add(pt):
         touched.add(f)
 
@@ -830,24 +806,30 @@ def zcode_union(held, fresh_pts):
     union, seen_ids = [], set()
     for pt in list(held) + list(fresh_pts):
         rid = pt[2] if len(pt) > 2 else ""
-        if rid:
-            if rid in seen_ids:
-                continue
-            seen_ids.add(rid)
+        if not usable_zcode_id(rid) or rid in seen_ids:
+            continue
+        seen_ids.add(rid)
         union.append(pt)
     return union
 
 
 def zcode_root_of(path_text):
-    for r in ZCODE_ROOTS:
-        s = str(r)
-        if path_text == s or path_text.startswith(s + os.sep):
-            return True
-    return False
+    return path_text.startswith(str(ZCODE_ROOT) + os.sep)
+
+
+# Older Zcode cache points truncated IDs to 64 characters and admitted
+# anonymous requests. Only this lane needs rebuilding; other agents retain
+# their caches. Deleted legacy rollouts cannot recover their full identity,
+# so discard those points rather than risk carrying duplicate usage forward.
+for key in list(cache):
+    if zcode_root_of(key):
+        entry = valid_entry(cache[key])
+        if not entry or entry.get("zcodeIdentityVersion") != 1:
+            del cache[key]
 
 
 walked = set()
-for f in walk_roots(ZCODE_ROOTS, lambda n: n.startswith("model-io-") and n.endswith(".jsonl")):
+for f in walk(ZCODE_ROOT, lambda n: n.startswith("model-io-") and n.endswith(".jsonl")):
     key = str(f)
     walked.add(key)
     held = []
@@ -855,15 +837,16 @@ for f in walk_roots(ZCODE_ROOTS, lambda n: n.startswith("model-io-") and n.endsw
     if prev:
         held = prune(prev.get("points") or [])
     fresh_pts = scan(f, zcode_extract)
-    for pt in zcode_union(held, fresh_pts):
+    union = zcode_union(held, fresh_pts)
+    for pt in union:
         try:
             zcode_keep(pt, f)
         except Exception:
             continue
-    union = zcode_union(held, fresh_pts)
     entry = next_cache.get(key)
     if entry is not None:
         entry["points"] = union
+        entry["zcodeIdentityVersion"] = 1
     elif prev is not None and union:
         next_cache[key] = dict(prev, points=union)
 
@@ -877,7 +860,7 @@ if cache:
         entry = valid_entry(raw)
         if not entry:
             continue
-        pts = prune(entry.get("points") or [])
+        pts = zcode_union(prune(entry.get("points") or []), [])
         if not pts:
             continue
         for pt in pts:
@@ -984,23 +967,23 @@ def with_grok_limits(agent_payload):
     return agent_payload
 
 
-def agent_present(roots, match):
+def agent_present(root, match):
     """True when this machine has actually used the agent: a transcript file
-    exists under any root, its own or a mirrored one. A binary on PATH with
+    exists under its local root. A binary on PATH with
     no sessions is not 'in use'; that would light Claude on every Omarchy
     box."""
-    return next(walk_roots(roots, match), None) is not None
+    return next(walk(root, match), None) is not None
 
 
 # Present means 'this machine uses this agent', not 'tokens in the window'.
 # A quiet hour must not hide a lane that was installed yesterday.
-claude_present = agent_present(CLAUDE_ROOTS, lambda n: n.endswith(".jsonl"))
-codex_present = agent_present(CODEX_ROOTS, lambda n: n.startswith("rollout-") and n.endswith(".jsonl"))
-grok_present = agent_present(GROK_ROOTS, lambda n: n == "updates.jsonl")
+claude_present = agent_present(CLAUDE_ROOT, lambda n: n.endswith(".jsonl"))
+codex_present = agent_present(CODEX_ROOT, lambda n: n.startswith("rollout-") and n.endswith(".jsonl"))
+grok_present = agent_present(GROK_ROOT, lambda n: n == "updates.jsonl")
 # Presence is not only "a rollout file exists": rotation deletes files while
 # their requests are still inside the window, and a lane with counted burn
 # must not hide because its store was tidied.
-zcode_present = (agent_present(ZCODE_ROOTS, lambda n: n.startswith("model-io-") and n.endswith(".jsonl"))
+zcode_present = (agent_present(ZCODE_ROOT, lambda n: n.startswith("model-io-") and n.endswith(".jsonl"))
                  or bool(zcode_ids))
 def kimi_configured():
     """True when this machine is set up for Kimi at all: its plan or its quota

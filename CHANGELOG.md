@@ -16,23 +16,15 @@
   de-duplicated by request id, and presence survives the tidying. Burn only,
   by design: no plan meter is read (Z.ai's quota endpoint is undocumented),
   so there are no limits rows, no quota gauge and no pace advice; the lane
-  never claims to know what the plan holds. Rides `BURNBAR_EXTRA_HOMES`
-  with the rest (`.zcode/cli/rollout` under each root). The older
-  `agents/*` transcript store is not read.
-- **`BURNBAR_EXTRA_HOMES`: count the burn of other machines.** A
-  colon-separated list of `$HOME`-shaped roots, rsync mirrors of other boxes
-  on your network, whose Claude, Codex and Grok transcripts are scanned into
-  the same lanes, because a subscription burned from three machines is still
-  one subscription. Roots are stripped and de-duplicated by real path, so a
-  root listed twice still counts once. Claude's `message.id` dedupe holds
-  across every root, so a mirror lagging behind its source adds nothing
-  wrong; Codex and Grok keep per-file state, so a mirror must not repeat
-  sessions the real `$HOME` already holds. Missing roots are simply absent,
-  an unnamed mirror is inert cached points and all, and plan limits stay read
-  from this machine's own records. The collector stays transport-agnostic:
-  rsync or syncthing, whatever keeps the mirror fresh is outside this diff.
-  No QML changes; the variable reaches the collector through the environment
-  the shell already passes to it, the way `GROK_HOME` does.
+  never claims to know what the plan holds. Reads only this machine's
+  rollout directory. The older `agents/*` transcript store is not read.
+
+### Fixed
+- Zcode rejects unusable request IDs and keeps full IDs, so repeated polls
+  cannot inflate anonymous usage or collapse IDs with a shared prefix. The
+  old Zcode scan cache is rebuilt from disk; deleted legacy records are dropped.
+- Every visible cloud-lane subset shares the available strip width, including
+  Codex + Kimi + Zcode without Claude. Added pair lanes remain narrow.
 
 ## 2.2.3 (2026-10-02)
 

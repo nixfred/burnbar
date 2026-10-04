@@ -1226,7 +1226,7 @@ BarWidget {
     return { hot: true, reason: live.spent ? "spent" : "dry",
              stage: live.spent ? 4 : live.over ? 2 : 1,
              used: live.used, resetsMs: reset,
-             dryAt: dry ? dryAt : 0, spent: live.spent }
+             dryAt: dry && !live.spent ? dryAt : 0, spent: live.spent }
   }
   // Which warning the strip carries when the week and the 5-hour window both
   // have one. A week that is spent or way over (stage 2 and up) is the wall

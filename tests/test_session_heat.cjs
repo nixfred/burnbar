@@ -86,6 +86,18 @@ test('spent is the top stage, and comes back at its reset', () => {
   assert.equal(h.resetsMs, session(1.0, 0.60).pace.resetsMs);
 });
 
+test('a spent window has no run-out moment left to show', () => {
+  // At 100% the collector still projects past the ceiling and writes a dry
+  // moment a minute ahead; the card must not say "runs out" about a window
+  // that already has.
+  for (const used of [1.0, 0.996]) {
+    const h = ctx.sessionHeat(session(used, 0.60, { dryAt: NOW + MIN }), week(0.30, 0.50), NOW);
+    assert.equal(h.reason, 'spent');
+    assert.equal(h.dryAt, 0);
+    assert.equal(ctx.sessionChipWords(h, NOW).text, 'CLAUDE 5-HOUR  SPENT, BACK 2H');
+  }
+});
+
 test('a spent week is the wall: the 5-hour window says nothing', () => {
   const h = ctx.sessionHeat(session(0.95, 0.50, { dryAt: NOW + 10 * MIN }), week(1.0, 0.80), NOW);
   assert.equal(h.hot, false);

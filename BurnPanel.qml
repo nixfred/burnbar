@@ -2051,7 +2051,7 @@ Panel {
               mark: panel.showSessionWindows ? "☑" : "☐"
               on: panel.showSessionWindows
               label: "5-hour session windows"
-              note: panel.showSessionWindows ? "always" : "only when one bites"
+              note: panel.showSessionWindows ? "always" : "only when Claude's bites"
               onActivated: panel.widget.toggleSessionWindows()
             }
 

@@ -22,7 +22,7 @@ def load(now_ms=NOW):
     tree = ast.parse((REPO / "bin" / "burnbar-collect").read_text())
     want_fn = {"window_ms_for", "recent_rate_per_hour", "pace_for", "parse_iso_ms",
                "local_midnight_ms", "norm_percent", "window_id", "burndown_series", "gift_reset_at"}
-    want_const = {"RATE_WINDOW_MS", "RATE_MIN_SPAN_MS", "DAILY_MIN_WINDOW_MS",
+    want_const = {"RATE_WINDOW_MS", "RATE_WINDOW_SHARE", "RATE_MIN_SPAN_MS", "DAILY_MIN_WINDOW_MS",
                   "SAMPLE_MAX_AGE_MS", "FUTURE_SLACK_MS", "MALFORMED", "SERIES_MAX_POINTS",
                   "GIFT_MIN_DROP", "GIFT_ID_SLACK_MS"}
     body = [n for n in tree.body
@@ -330,6 +330,50 @@ class PaceTests(unittest.TestCase):
         self.assertAlmostEqual(p["ratePerHour"], 0.30, places=6)
         self.assertAlmostEqual((p["dryAt"] - NOW) / HOUR, 7 / 6, places=3)
         self.assertLess(p["dryAt"], resets)
+
+    def test_a_burst_on_a_five_hour_window_names_the_dry_moment_inside_fifteen_minutes(self):
+        # 2026-10-03: the window nearly ran dry mid-work after a quiet spell. A
+        # two-hour fit read the burst as a trickle; a tenth of the window does
+        # not. 2.5h in at 50%, idle the previous 2h, then 80 points an hour.
+        ns = load()
+        key = "claude|Session (5-hour)"
+        resets = ns["window_id"](NOW + 2.5 * HOUR)
+        step = 5 * 60_000
+        samples = [(NOW - k * step, 0.50, resets) for k in range(24, -1, -1)]
+        first_dry = None
+        for k in range(1, 7):
+            at = NOW + k * step
+            pct = 0.50 + 0.80 * (k * step / HOUR)
+            samples.append((at, pct, resets))
+            ns["now_ms"] = at
+            ns["PACE"]["samples"][key] = list(samples)
+            p = ns["pace_for"](self.row(pct, resets, "Session (5-hour)"), key, True)
+            if p["dryAt"] > 0:
+                first_dry = (at, p["dryAt"])
+                break
+        self.assertIsNotNone(first_dry, "no dry moment inside the burst")
+        at, dry = first_dry
+        self.assertLessEqual(at - NOW, 15 * 60_000)
+        self.assertGreater(dry, at)
+        self.assertLess(dry, resets)
+
+    def test_a_week_keeps_the_two_hour_rate_fit(self):
+        # Three hours of samples: flat for the first hour, then 2 points an
+        # hour. A two-hour fit sees only the climb; anything longer would
+        # drag the slope down, anything shorter is a different fit.
+        ns = load()
+        resets = ns["window_id"](NOW + 3 * DAY)
+        step = 5 * 60_000
+        pts = []
+        for k in range(36, -1, -1):
+            t = NOW - k * step
+            pct = 0.30 if t <= NOW - 2 * HOUR else 0.30 + 0.02 * ((t - (NOW - 2 * HOUR)) / HOUR)
+            pts.append((t, pct, resets))
+        ns["PACE"]["samples"]["claude|w"] = pts
+        p = ns["pace_for"](self.row(pts[-1][1], resets, "Weekly (7-day)"), "claude|w", True)
+        self.assertEqual(p["windowMs"], 7 * DAY)
+        self.assertAlmostEqual(p["ratePerHour"], 0.02, places=6)
+        self.assertAlmostEqual(p["ratePerHour"], ns["recent_rate_per_hour"](pts), places=9)
 
 
 if __name__ == "__main__":

@@ -1395,6 +1395,7 @@ SAMPLES_FILE = OUT_DIR / "limit-samples.jsonl"
 SAMPLE_MAX_AGE_MS = 40 * 86400_000     # a monthly window plus slack
 SAMPLE_MIN_GAP_MS = 5 * 60_000         # the collector ticks every few seconds
 RATE_WINDOW_MS = 120 * 60_000          # the rate is measured over 2h of samples
+RATE_WINDOW_SHARE = 0.10               # ... or a tenth of a short window (30 min of a 5h one)
 RATE_MIN_SPAN_MS = 10 * 60_000         # ... and needs a real span, not two ticks
 DAILY_MIN_WINDOW_MS = 36 * 3600_000    # "today's budget" is meaningless in a 5h window
 
@@ -1482,14 +1483,21 @@ def save_samples():
         pass
 
 
-def recent_rate_per_hour(points):
-    """Least squares slope over the last RATE_WINDOW_MS, as fraction per hour.
-    None when the samples cannot carry a rate: fewer than two, too short a span,
-    or a percentage that went DOWN inside the span, which is a reset, not a
+def recent_rate_per_hour(points, window_ms=0):
+    """Least squares slope over the recent samples, as fraction per hour. The
+    fit covers the last RATE_WINDOW_MS, or a tenth of the limit's own window
+    when that is shorter: two hours is 40% of a 5-hour window, and a fit that
+    long reads a burst after a quiet spell as a trickle until the window is
+    nearly gone. Windows of 20 hours and up keep the two-hour fit. None when the
+    samples cannot carry a rate: fewer than two, too short a span, or a
+    percentage that went DOWN inside the span, which is a reset, not a
     negative burn."""
     if len(points) < 2:
         return None
-    floor = points[-1][0] - RATE_WINDOW_MS
+    fit = RATE_WINDOW_MS
+    if window_ms > 0:
+        fit = min(fit, int(window_ms * RATE_WINDOW_SHARE))
+    floor = points[-1][0] - fit
     pts = [(t, p) for t, p, _ in points if t >= floor]
     if len(pts) < 2 or pts[-1][0] - pts[0][0] < RATE_MIN_SPAN_MS:
         return None
@@ -1614,7 +1622,7 @@ def pace_for(row, key, live):
     if elapsed >= 0.01:
         out["ratio"] = pct / elapsed
     # Only the rows this machine samples can carry a rate.
-    rate = recent_rate_per_hour([p for p in points if p[2] == resets]) if live else None
+    rate = recent_rate_per_hour([p for p in points if p[2] == resets], window) if live else None
     if rate is not None:
         out["ratePerHour"] = rate
         projected = pct + rate * hours_left

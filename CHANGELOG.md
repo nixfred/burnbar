@@ -10,9 +10,10 @@
   It counts as hot only when it cannot last to its own reset: the measured
   rate runs it dry before the reset, or it is spent. How much is gone and how
   far over its even pace it is are not reasons on their own. Hot, it is on the
-  Claude card whatever the switch says (how much is gone, the reset by the
-  clock and counting down, and the same OVER / WAY OVER verdict the week gets)
-  and the strip chip names it: `CLAUDE 5-HOUR  OUT IN 40M`, `RUNNING OUT` once
+  Claude card even with the switch off (how much is gone, the reset by the
+  clock and counting down, and the week's OVER / WAY OVER verdict when the
+  ratio earns it, otherwise RUNNING DRY or SPENT; with the switch on the
+  regular 5-hour row already lists it) and the strip chip names it: `CLAUDE 5-HOUR  OUT IN 40M`, `RUNNING OUT` once
   that moment has passed, or `SPENT, BACK 2H`, every countdown from the present
   clock like the card's. It outranks a week that is merely over pace, because
   it locks you out in hours; a week that is spent or way over keeps the chip.
@@ -23,7 +24,10 @@
   the burndown dot, the live bar and the card glows all hold still.
 - The Claude tooltip carries the 5-hour line while it is hot.
 - The pace is the collector's own: the 5-hour row already had its pace block
-  and dry moment, so there is no second pace for it.
+  and dry moment, so there is no second pace for it. Its rate is now fitted
+  over a tenth of the window (30 minutes of a 5-hour one) instead of two
+  hours, so a burst after a quiet spell shows up inside its first 15 minutes;
+  every window of 20 hours and up keeps the two-hour fit exactly.
 
 ## 2.2.4 (2026-10-04)
 

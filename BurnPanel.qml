@@ -905,8 +905,8 @@ Panel {
     + (showKimi ? 1 : 0) + (showZcode ? 1 : 0) + (showLocal ? 1 : 0)
 
   // The 5-hour window is opt-in here: the weekly and monthly windows are the
-  // ones that usually end a working day. Claude's still shows on its card while
-  // it is the one about to run out (shortWindow below), whatever the switch says.
+  // ones that usually end a working day. With the switch off, Claude's still
+  // shows on its card while it is the one about to run out (shortWindow below).
   function isSessionWindow(label) { return /session|5-hour/i.test(String(label || "")) }
   function agentWindows(a) {
     var rows = sv(a, "Limits", []) || []
@@ -1502,15 +1502,21 @@ Panel {
       // ── the 5-hour window, only while it is the one that bites ─────────
       // Calm, it stays behind the 5-hour switch in SETUP. Hot (spent, or
       // running dry before its reset at the measured rate), it is on the card
-      // whatever the switch says: how much, when it resets by the clock and
-      // counting down, and the same verdict the week gets.
+      // even with the switch off: how much, when it resets by the clock and
+      // counting down, and the week's OVER / WAY OVER verdict when the ratio
+      // earns it, otherwise why it is hot. With the switch on the regular row
+      // above already lists it, so this one stands down.
       Rectangle {
         id: shortWindow
         readonly property var heat: card.agent === "claude" ? panel.widget.claudeSessionHeat : null
         readonly property var row: heat && heat.hot ? panel.widget.sessionLimit("claude") : null
-        readonly property var v: panel.paceVerdict(row, row === null)
+        readonly property var v: {
+          var pv = panel.paceVerdict(row, row === null)
+          if (row === null || pv.word === "OVER" || pv.word === "WAY OVER") return pv
+          return { word: heat.spent ? "SPENT" : "RUNNING DRY", color: Color.urgent }
+        }
         readonly property color tone: heat && (heat.spent || heat.used >= 0.9) ? Color.urgent : Qt.lighter(Color.urgent, 1.35)
-        visible: row !== null
+        visible: row !== null && !panel.showSessionWindows
         Layout.fillWidth: true
         implicitHeight: Style.space(panel.tight(32, 30, 28))
         radius: Style.space(6)

@@ -949,7 +949,7 @@ BarWidget {
         var sw = sessionChipWords(heat, Date.now())
         return { text: sw.text, short: sw.short, third: sw.third, mult: sw.mult,
                  stage: heat.stage, key: "claude|session", resets: heat.resetsMs,
-                 color: urgent, ratio: Math.max(best.ratio, heat.ratio), session: true }
+                 color: urgent, session: true }
       }
     }
     return best
@@ -1212,7 +1212,7 @@ BarWidget {
   // nothing then. The pace is the same paceLive() the week uses. Pure, so it
   // is tested.
   function sessionHeat(session, weekLive, nowMs) {
-    var calm = { hot: false, reason: "", stage: 0, used: -1, ratio: -1, resetsMs: 0, dryAt: 0, spent: false }
+    var calm = { hot: false, reason: "", stage: 0, used: -1, resetsMs: 0, dryAt: 0, spent: false }
     if (!session || !(Number(session.percent) >= 0)) return calm
     if (weekLive && weekLive.spent) return calm
     var pace = session.pace || {}
@@ -1220,13 +1220,12 @@ BarWidget {
     var now = Number(nowMs) || Date.now()
     var live = paceLive(session.percent, reset, Number(pace.windowMs) || 5 * 3600000, now)
     if (!live) return calm
-    var ratio = live.elapsed > 0 ? live.used / live.elapsed : -1
     var dryAt = Number(pace.dryAt) || 0
     var dry = dryAt > now && dryAt < reset
     if (!live.spent && !dry) return calm
     return { hot: true, reason: live.spent ? "spent" : "dry",
              stage: live.spent ? 4 : live.over ? 2 : 1,
-             used: live.used, ratio: ratio, resetsMs: reset,
+             used: live.used, resetsMs: reset,
              dryAt: dry ? dryAt : 0, spent: live.spent }
   }
   // Which warning the strip carries when the week and the 5-hour window both

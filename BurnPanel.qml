@@ -1800,28 +1800,48 @@ Panel {
       // keyboard is theirs, and when the last one closes we take it back.
       // The shell's own passive layers (bar, OSD, toasts, our dismiss twins)
       // never hold the keyboard, so they are not counted.
+      //
+      // Fred, 2026-10-04: the Esc "came to you" (the Orca terminal under the
+      // panel). Most layers never take the keyboard: an edge strip, a hot
+      // corner, a toast from another plugin. One that mapped while the panel
+      // was up kept the count above zero for as long as it stayed, and the next
+      // theft went unanswered. Hyprland refuses a window the keyboard while any
+      // Exclusive layer is up, and announces every window that does get it as
+      // activewindowv2 with its address, so that event means no layer holds
+      // the keys: forget the layers and take them back. slurp stays safe, since
+      // no window can be focused while it is up.
       property var foreignLayers: ({})
       readonly property int foreignLayerCount: Object.keys(foreignLayers).length
       readonly property var passiveLayers: ["omarchy-keyboard-panel", "omarchy-keyboard-panel-dismiss",
         "omarchy-bar", "omarchy-bar-drag-ghost", "omarchy-bar-move-ghost", "omarchy-background",
         "omarchy-osd", "omarchy-notifications", "omarchy-hotcorner"]
+      // Pure, so tests/test_esc_guard.cjs can run it without a compositor.
+      // Returns the next layer set and whether to take the keyboard back.
+      function layerEvent(layers, name, data, opened, passive) {
+        var ns = String(data)
+        if (name === "activewindowv2") {
+          if (!opened || ns === "") return { layers: layers, reprime: false }
+          return { layers: {}, reprime: true }
+        }
+        if (name !== "openlayer" && name !== "closelayer") return { layers: layers, reprime: false }
+        if (passive.indexOf(ns) >= 0) return { layers: layers, reprime: false }
+        var seen = Object.assign({}, layers)
+        if (name === "openlayer") {
+          if (!opened) return { layers: layers, reprime: false }
+          seen[ns] = (seen[ns] || 0) + 1
+          return { layers: seen, reprime: false }
+        }
+        if (!(ns in seen)) return { layers: layers, reprime: false }
+        if (--seen[ns] <= 0) delete seen[ns]
+        return { layers: seen, reprime: opened && Object.keys(seen).length === 0 }
+      }
       Connections {
         target: Hyprland
         function onRawEvent(event) {
-          if (event.name !== "openlayer" && event.name !== "closelayer") return
-          var ns = String(event.data)
-          if (keyCatcher.passiveLayers.indexOf(ns) >= 0) return
-          var seen = Object.assign({}, keyCatcher.foreignLayers)
-          if (event.name === "openlayer") {
-            if (!panel.opened) return
-            seen[ns] = (seen[ns] || 0) + 1
-          } else {
-            if (!(ns in seen)) return
-            if (--seen[ns] <= 0) delete seen[ns]
-          }
-          keyCatcher.foreignLayers = seen
-          if (event.name === "closelayer" && Object.keys(seen).length === 0 && panel.opened && !keyCatcher.windowActive)
-            refocusTimer.restart()
+          var next = keyCatcher.layerEvent(keyCatcher.foreignLayers, event.name, event.data,
+            panel.opened, keyCatcher.passiveLayers)
+          if (next.layers !== keyCatcher.foreignLayers) keyCatcher.foreignLayers = next.layers
+          if (next.reprime && !keyCatcher.windowActive) refocusTimer.restart()
         }
       }
       Connections {

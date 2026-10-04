@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.2.4 (2026-10-04)
 
 ### Added
 - **A Zcode lane.** `~/.zcode/cli/rollout/model-io-sess_*.jsonl`, Z.ai's
@@ -20,6 +20,17 @@
   rollout directory. The older `agents/*` transcript store is not read.
 
 ### Fixed
+- **Esc closes the panel again, whatever other layers are up.** Fred: the Esc
+  "came to you", the Claude session in the Orca terminal under the panel.
+  2.2.3 held back while any other client's layer was open, so slurp could keep
+  the keyboard, but most layers never take it: an edge strip, a hot corner, a
+  toast from another plugin. One that appeared while the panel was up switched
+  the guard off for as long as it stayed, and when Hyprland handed the
+  keyboard back to the window beneath, the panel never took it back. Hyprland
+  refuses a window the keyboard while slurp, hyprpicker or the menu holds it,
+  and announces every window that does get it, so that announcement now means
+  the keys were stolen: the panel takes them back. Screenshots of the open
+  panel still work.
 - Zcode rejects unusable request IDs and keeps full IDs, so repeated polls
   cannot inflate anonymous usage or collapse IDs with a shared prefix. The
   old Zcode scan cache is rebuilt from disk; deleted legacy records are dropped.

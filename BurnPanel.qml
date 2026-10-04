@@ -1504,8 +1504,8 @@ Panel {
       // running dry before its reset at the measured rate), it is on the card
       // even with the switch off: how much, when it runs out, when it resets
       // by the clock and counting down, and its own OVER / WAY OVER verdict
-      // when its ratio earns it, otherwise why it is hot. With the switch on the regular rows
-      // below already list it, so this one stands down.
+      // when its ratio earns it, otherwise why it is hot. With the switch on
+      // the regular rows below already list it, so this one stands down.
       Rectangle {
         id: shortWindow
         readonly property var heat: card.agent === "claude" ? panel.widget.claudeSessionHeat : null

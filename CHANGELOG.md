@@ -13,9 +13,10 @@
   Claude card even with the switch off (how much is gone, when it runs out
   first, then the reset by the clock and counting down, which a narrow card
   shortens before it ever cuts the run-out, and its own OVER / WAY OVER
-  verdict when its ratio earns it, otherwise RUNNING DRY or SPENT; with the switch on the
-  regular 5-hour row already lists it) and the strip chip names it: `CLAUDE 5-HOUR  OUT IN 40M`, `RUNNING OUT` once
-  that moment has passed, or `SPENT, BACK 2H`, every countdown from the present
+  verdict when its ratio earns it, otherwise RUNNING DRY or SPENT; with the
+  switch on the regular 5-hour row already lists it) and the strip chip names
+  it: `CLAUDE 5-HOUR  OUT IN 40M`, `RUNNING OUT` once that moment has passed,
+  or `SPENT, BACK 2H`, every countdown from the present
   clock like the card's. It outranks a week that is merely over pace, because
   it locks you out in hours; a week that is spent or way over keeps the chip.
   Clicking answers it until it gets worse or the next 5-hour window starts.

@@ -448,6 +448,54 @@ def nvidia_telemetry() -> tuple[dict, str]:
     return fields, ""
 
 
+def amd_telemetry(sys_drm=None) -> tuple[dict, str]:
+    """Read local amdgpu counters without NVIDIA tools or privileged writes.
+
+    GPU busy is device-wide, including desktop rendering. main() only calls
+    it inference activity when a model is resident. Dedicated VRAM counters
+    are omitted: an integrated GPU also uses shared system memory, and those
+    counters would misrepresent the model's usable memory budget.
+    """
+    root = Path(sys_drm) if sys_drm else Path("/sys/class/drm")
+    try:
+        cards = sorted(root.glob("card[0-9]*"))
+    except OSError:
+        cards = []
+    for card in cards:
+        if not card.name[4:].isdigit():
+            continue
+        device = card / "device"
+        if _read_text(device / "vendor").lower() != "0x1002":
+            continue
+        fields = {"gpuName": "AMD", "cpu": local_ollama_cpu()}
+
+        def reading(path, key, scale=1.0, limit=None):
+            raw = _read_text(path)
+            try:
+                value = float(raw) * scale
+            except (TypeError, ValueError):
+                return
+            if not math.isfinite(value) or value < 0:
+                return
+            fields[key] = round(min(value, limit) if limit is not None else value, 1)
+
+        reading(device / "gpu_busy_percent", "gpu", limit=100.0)
+        try:
+            monitors = sorted((device / "hwmon").glob("hwmon*"))
+        except OSError:
+            monitors = []
+        for monitor in monitors:
+            if _read_text(monitor / "name") != "amdgpu":
+                continue
+            reading(monitor / "temp1_input", "tempC", 0.001)
+            reading(monitor / "freq1_input", "clockMhz", 0.000001)
+            reading(monitor / "power1_average", "powerW", 0.000001)
+            reading(monitor / "power1_cap", "powerLimitW", 0.000001)
+            break
+        return fields, "" if "gpu" in fields else "AMD GPU load counter unavailable"
+    return {}, "AMD DRM device not found"
+
+
 def tegra_telemetry_local() -> tuple[dict, str]:
     try:
         run = subprocess.run(["sh", "-c", TELEMETRY_SNIPPET], capture_output=True, text=True, timeout=SSH_TIMEOUT)
@@ -492,6 +540,8 @@ def telemetry(host: str, gpu_info=None) -> tuple[dict, str]:
             return nvidia_telemetry()
         if backend == "tegra":
             return tegra_telemetry_local()
+        if backend == "amd":
+            return amd_telemetry()
         return {}, info.get("reason") or "no discrete GPU"
     return telemetry_ssh(host)
 

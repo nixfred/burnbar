@@ -100,6 +100,12 @@ and Codex transcripts to count tokens. It keeps numbers, model names and
 message ids from them, never text, and it triggers Omarchy's own usage
 collectors, which contact your providers with the sign-ins you already have.
 
+Local AMD telemetry reads available `amdgpu` DRM/sysfs counters for
+device-wide GPU utilisation, temperature, clock and power. Unsupported
+counters are withheld. Dedicated VRAM counters are omitted because they
+do not describe an integrated GPU's shared-memory budget. A resident
+Ollama model is still required for the lane to report inference activity.
+
 ## The strip
 
 ![The strip with its two chips: a warning when something is over pace, advice when nothing is](docs/img/strip-chips.png)

@@ -12,6 +12,8 @@ file under:
 - `~/.claude/projects/**/*.jsonl`: your complete Claude Code conversations
 - `~/.grok/sessions/**/updates.jsonl` and `~/.grok/logs/unified.jsonl`, Grok Build/CLI session updates and billing snapshots
 - `~/.codex/sessions/**/rollout-*.jsonl`: your complete Codex sessions
+- `~/.zcode/cli/rollout/**.jsonl`: your complete Zcode model input/output
+  records, prompts included
 
 These files contain your prompts, the assistant's replies, and the contents of
 files you worked on. There is no way to count per-turn tokens without reading
@@ -41,8 +43,8 @@ prompt, never the reply. The journal line is the whole record.
 
 1. `bin/burnbar-collect` (Python 3, standard library only) reads each line and
    keeps: a timestamp, token counts split into input, cache write, output and
-   cache read, the model name, and, for Claude, the opaque `message.id`
-   used to deduplicate streamed records.
+   cache read, the model name, and the opaque Claude `message.id` or full
+   Zcode `requestId` used to deduplicate records.
 2. No prompt text, reply text, or file content from inside a conversation is
    extracted, stored, or displayed. The scan cache does key on the absolute
    transcript path, and Claude's transcript paths include the project

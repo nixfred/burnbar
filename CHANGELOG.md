@@ -1,5 +1,31 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- **A Zcode lane.** `~/.zcode/cli/rollout/model-io-sess_*.jsonl`, Z.ai's
+  coding agent, is counted like any other cloud lane. Each line is one
+  completed model request with its own usage object and model id, so the
+  lane is per-request arithmetic: no cumulative counter to difference, no
+  streamed revisions to dedupe. zcode's inputTokens is a bundle (input plus
+  cache write plus cache read, as its own agent builds it), so the fresh
+  input is taken back out before the heat; cache reads ride in the split and
+  stay out of it. The rollout store is a ring rather than a ledger (three
+  files, a 64 MiB reset, deletions), so requests already counted survive
+  their file being truncated or deleted until they age out of the window,
+  de-duplicated by request id, and presence survives the tidying. Burn only,
+  by design: no plan meter is read (Z.ai's quota endpoint is undocumented),
+  so there are no limits rows, no quota gauge and no pace advice; the lane
+  never claims to know what the plan holds. Reads only this machine's
+  rollout directory. The older `agents/*` transcript store is not read.
+
+### Fixed
+- Zcode rejects unusable request IDs and keeps full IDs, so repeated polls
+  cannot inflate anonymous usage or collapse IDs with a shared prefix. The
+  old Zcode scan cache is rebuilt from disk; deleted legacy records are dropped.
+- Every visible cloud-lane subset shares the available strip width, including
+  Codex + Kimi + Zcode without Claude. Added pair lanes remain narrow.
+
 ## 2.2.3 (2026-10-02)
 
 ### Fixed

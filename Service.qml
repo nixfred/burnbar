@@ -101,6 +101,22 @@ Item {
   property real kimiPeakAt: 0
   property real kimiTrailing5: 0
   property real kimiTrailing60: 0
+  // Zcode (Z.ai's coding agent) is burn-only: no plan meter is read, so the
+  // limits fields stay at their empty values on purpose. limitsLive false is
+  // what tells the panel these are not measurements that went stale.
+  property real zcodeTotal: 0
+  property real zcodePeak: 0
+  property int zcodeSessions: 0
+  property real zcodeLimitsMeasuredAt: 0
+  property bool zcodeLimitsLive: false
+  property var zcodeByModel: ({})
+  property var zcodeSplit: ({})
+  property int zcodeTurns: 0
+  property real zcodeFirstAt: 0
+  property real zcodeLastAt: 0
+  property real zcodePeakAt: 0
+  property real zcodeTrailing5: 0
+  property real zcodeTrailing60: 0
   // Tokens burned on the Ollama box over the same exact window, read from
   // the ollama-meter journal there, and the share of all burn that stayed
   // off the frontier models. available=false carries the reason (ssh
@@ -133,6 +149,7 @@ Item {
   property bool codexPresent: false
   property bool grokPresent: false
   property bool kimiPresent: false
+  property bool zcodePresent: false
   // A compute GPU (NVIDIA, AMD, Jetson) on this machine. Intel iGPU is
   // not one. No GPU → no local lane, no ssh, no Ollama poll.
   // Named hasComputeGpu so it cannot collide with localGpu, the load %.
@@ -146,10 +163,12 @@ Item {
   property int codexPulse: 0
   property int grokPulse: 0
   property int kimiPulse: 0
+  property int zcodePulse: 0
   property real lastClaudeLatest: 0
   property real lastCodexLatest: 0
   property real lastGrokLatest: 0
   property real lastKimiLatest: 0
+  property real lastZcodeLatest: 0
   property real lastBucketT: 0
 
   readonly property string stateDir: (Quickshell.env("XDG_STATE_HOME")
@@ -263,6 +282,7 @@ Item {
   readonly property real codexLatest: buckets.length ? Number(buckets[buckets.length - 1].codex || 0) : 0
   readonly property real grokLatest: buckets.length ? Number(buckets[buckets.length - 1].grok || 0) : 0
   readonly property real kimiLatest: buckets.length ? Number(buckets[buckets.length - 1].kimi || 0) : 0
+  readonly property real zcodeLatest: buckets.length ? Number(buckets[buckets.length - 1].zcode || 0) : 0
 
   // Re-evaluated every 30s so a record ages into "stale" and a window rolls
   // into "expired" without waiting for a new sample to arrive.
@@ -540,6 +560,20 @@ Item {
       root.kimiPeakAt = num(km.peakAt)
       root.kimiTrailing5 = num(km.trailing ? km.trailing.m5 : 0)
       root.kimiTrailing60 = num(km.trailing ? km.trailing.m60 : 0)
+      var zc = parsed.zcode && typeof parsed.zcode === "object" ? parsed.zcode : ({})
+      root.zcodeTotal = num(zc.total)
+      root.zcodePeak = num(zc.peak)
+      root.zcodeSessions = num(zc.sessions)
+      root.zcodeLimitsMeasuredAt = num(zc.limitsMeasuredAt)
+      root.zcodeLimitsLive = zc.limitsLive === true
+      root.zcodeByModel = zc.byModel && typeof zc.byModel === "object" ? zc.byModel : ({})
+      root.zcodeSplit = zc.split && typeof zc.split === "object" ? zc.split : ({})
+      root.zcodeTurns = num(zc.turns)
+      root.zcodeFirstAt = num(zc.firstAt)
+      root.zcodeLastAt = num(zc.lastAt)
+      root.zcodePeakAt = num(zc.peakAt)
+      root.zcodeTrailing5 = num(zc.trailing ? zc.trailing.m5 : 0)
+      root.zcodeTrailing60 = num(zc.trailing ? zc.trailing.m60 : 0)
       var l = parsed.local && typeof parsed.local === "object" ? parsed.local : null
       root.localTokensAvailable = !!l && l.available === true
       root.localTokensReason = l ? String(l.reason || "") : "collector predates local token counting"
@@ -561,12 +595,14 @@ Item {
         // Absent in history written before Kimi existed: stay off rather than
         // inventing a lane this machine has never used.
         root.kimiPresent = presence.kimi === true
+        root.zcodePresent = presence.zcode === true
       } else {
         // History written before presence existed: keep the old always-on lanes.
         root.claudePresent = true
         root.codexPresent = true
         root.grokPresent = true
         root.kimiPresent = false
+        root.zcodePresent = false
       }
       if (!root.limitsEverTried && (root.claudePresent || root.codexPresent))
         root.refreshLimits()
@@ -592,16 +628,19 @@ Item {
       root.lastCodexLatest = 0
       root.lastGrokLatest = 0
       root.lastKimiLatest = 0
+      root.lastZcodeLatest = 0
       root.lastBucketT = latestT
     }
     if (root.claudeLatest > root.lastClaudeLatest) root.claudePulse++
     if (root.codexLatest > root.lastCodexLatest) root.codexPulse++
     if (root.grokLatest > root.lastGrokLatest) root.grokPulse++
     if (root.kimiLatest > root.lastKimiLatest) root.kimiPulse++
+    if (root.zcodeLatest > root.lastZcodeLatest) root.zcodePulse++
     root.lastClaudeLatest = root.claudeLatest
     root.lastCodexLatest = root.codexLatest
     root.lastGrokLatest = root.grokLatest
     root.lastKimiLatest = root.kimiLatest
+    root.lastZcodeLatest = root.zcodeLatest
   }
 
   Timer {

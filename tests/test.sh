@@ -86,11 +86,18 @@ command -v node >/dev/null && {
 node tests/test_lane_cap.cjs >/dev/null 2>&1 \
   || fail "lane cap tests"
 ok "the strip's ceiling is one physical allowance per visible lane, floor wins"
+node tests/test_lane_allocation.cjs >/dev/null 2>&1 \
+  || fail "lane allocation tests"
+ok "all visible cloud-lane subsets fit the strip"
 node tests/test_guidance.cjs >/dev/null 2>&1 \
   || fail "guidance tests"
 ok "guidance: banked only when ahead, a way back when behind, a pick only with a choice, never local"
   ok "theme palette parses, hues are in range, every lane has a fallback key"
 }
+
+python3 -m unittest discover -s tests -p 'test_zcode.py' -q \
+  || fail "Zcode identity and retention"
+ok "Zcode identity, warm cache, local-only roots and retention"
 
 # --help is a question, not a run: it must describe the flags and exit without
 # creating a state directory or touching history.json.
@@ -513,6 +520,79 @@ BURNBAR_METER_JOURNAL="$j" HOME="$fake_home" GROK_HOME="$fake_home/.grok" \
 jq -e '.local.available == false and (.local.reason | test("GPU"))' "$out" >/dev/null \
   || fail "--no-local still counted local tokens: $(jq -c '.local | {available, reason, total}' "$out")"
 ok "--no-local skips the meter and reports no GPU"
+
+# ── zcode: one line per completed model request ──────────────────────────────
+# ~/.zcode/cli/rollout/model-io-sess_*.jsonl. Per-request usage (no cumulative
+# counter, no streamed revisions), so what the line says is what the lane
+# counts. zcode's inputTokens is a bundle (input + cache write + cache read),
+# so the heat is fresh input + cache write + output, cache reads carried in
+# the split but excluded, model attributed from the line itself.
+mkdir -p "$fake_home/.zcode/cli/rollout"
+zlocal="$fake_home/.zcode/cli/rollout/model-io-sess_local.jsonl"
+printf '{"completedAt":"%s","requestId":"req_z1","attempt":1,"model":{"modelId":"glm-5.3"},"response":{"usage":{"inputTokens":400,"outputTokens":150,"totalTokens":550,"cacheReadTokens":300,"cacheWriteTokens":50}}}\n' \
+  "$now_iso" > "$zlocal"
+zc="$fake_home/.zcode/cli/rollout/model-io-sess_fixture.jsonl"
+printf '{"completedAt":"%s","requestId":"req_z2","attempt":1,"model":{"modelId":"qwen3.8-27b"},"response":{"usage":{"inputTokens":100,"outputTokens":20,"totalTokens":120}}}\n' \
+  "$now_iso" > "$zc"
+# Records whose usage is not counts are skipped, not fatal: a string, a bool,
+# a negative, a float that is not whole, 1e999 and a count over the cap.
+printf '{"completedAt":"%s","requestId":"req_b1","response":{"usage":{"inputTokens":"unknown","outputTokens":1}}}\n' "$now_iso" > "$fake_home/.zcode/cli/rollout/model-io-bad.jsonl"
+printf '{"completedAt":"%s","requestId":"req_b2","response":{"usage":{"inputTokens":true,"outputTokens":1}}}\n' "$now_iso" >> "$fake_home/.zcode/cli/rollout/model-io-bad.jsonl"
+printf '{"completedAt":"%s","requestId":"req_b3","response":{"usage":{"inputTokens":-50,"outputTokens":1}}}\n' "$now_iso" >> "$fake_home/.zcode/cli/rollout/model-io-bad.jsonl"
+printf '{"completedAt":"%s","requestId":"req_b4","response":{"usage":{"inputTokens":12.7,"outputTokens":1}}}\n' "$now_iso" >> "$fake_home/.zcode/cli/rollout/model-io-bad.jsonl"
+printf '{"completedAt":"%s","requestId":"req_b5","response":{"usage":{"inputTokens":1e999,"outputTokens":1}}}\n' "$now_iso" >> "$fake_home/.zcode/cli/rollout/model-io-bad.jsonl"
+printf '{"completedAt":"%s","requestId":"req_b6","response":{"usage":{"inputTokens":1000000000000000,"outputTokens":1}}}\n' "$now_iso" >> "$fake_home/.zcode/cli/rollout/model-io-bad.jsonl"
+# A bundle smaller than its own cache part is not arithmetic anyone wrote.
+printf '{"completedAt":"%s","requestId":"req_b7","response":{"usage":{"inputTokens":100,"cacheReadTokens":300,"outputTokens":1}}}\n' "$now_iso" >> "$fake_home/.zcode/cli/rollout/model-io-bad.jsonl"
+# The same requestId twice counts once.
+printf '{"completedAt":"%s","requestId":"req_z2","attempt":1,"model":{"modelId":"qwen3.8-27b"},"response":{"usage":{"inputTokens":100,"outputTokens":20,"totalTokens":120}}}\n' \
+  "$now_iso" >> "$zc"
+BURNBAR_METER_JOURNAL="$tmp/journal-empty.txt" \
+  HOME="$fake_home" GROK_HOME="$fake_home/.grok" python3 bin/burnbar-collect --window 360 --buckets 12
+jq -e '.zcode.total == 370 and .zcode.turns == 2 and .zcode.sessions == 2
+  and .zcode.byModel["glm-5.3"] == 250 and .zcode.byModel["qwen3.8-27b"] == 120
+  and .zcode.split.input == 150 and .zcode.split.cacheWrite == 50
+  and .zcode.split.output == 170 and .zcode.split.cacheRead == 300
+  and .presence.zcode == true' "$out" >/dev/null \
+  || fail "zcode lane wrong: $(jq -c '.zcode' "$out")"
+ok "zcode unbundles inputTokens: cache reads stay out of the heat, junk is skipped, a request id counts once"
+
+# The rollout store is a ring: a file is truncated to a reset line or deleted
+# outright while its requests are still inside the window. What was counted
+# must survive both, which is what the request-id union with the scan cache
+# is for.
+printf '{"completedAt":"%s","requestId":"req_z4","attempt":1,"model":{"modelId":"glm-5.3"},"response":{"usage":{"inputTokens":10,"outputTokens":5,"totalTokens":15}}}\n' \
+  "$now_iso" > "$zc"
+BURNBAR_METER_JOURNAL="$tmp/journal-empty.txt" \
+  HOME="$fake_home" GROK_HOME="$fake_home/.grok" python3 bin/burnbar-collect --window 360 --buckets 12
+[ "$(jq -r '.zcode.total' "$out")" = "385" ] \
+  || fail "a truncated rollout lost its earlier requests: $(jq -r '.zcode.total' "$out") != 385"
+ok "a truncated rollout keeps the requests it already counted"
+
+rm -f "$zc"
+BURNBAR_METER_JOURNAL="$tmp/journal-empty.txt" \
+  HOME="$fake_home" GROK_HOME="$fake_home/.grok" python3 bin/burnbar-collect --window 360 --buckets 12
+[ "$(jq -r '.zcode.total' "$out")" = "385" ] && [ "$(jq -r '.presence.zcode' "$out")" = "true" ] \
+  || fail "a deleted rollout lost its requests or its presence: total $(jq -r '.zcode.total' "$out"), presence $(jq -r '.presence.zcode' "$out")"
+ok "a deleted rollout retains its requests inside the window"
+
+# Advance past the six-hour display window, then the 25-hour cache horizon.
+# Use a copied state dir so later fixtures retain the original pinned clock.
+expiry_state="$tmp/expiry-state"
+cp -a "$XDG_STATE_HOME" "$expiry_state"
+BURNBAR_NOW_MS=$(( BURNBAR_NOW_MS + 6 * 3600 * 1000 + 1 )) \
+  XDG_STATE_HOME="$expiry_state" HOME="$fake_home" GROK_HOME="$fake_home/.grok" \
+  python3 bin/burnbar-collect --no-local --window 360 --buckets 12
+jq -e '.zcode.total == 0 and .zcode.turns == 0' \
+  "$expiry_state/omarchy/burnbar/history.json" >/dev/null \
+  || fail "deleted rollout still contributes after the window"
+BURNBAR_NOW_MS=$(( BURNBAR_NOW_MS + 25 * 3600 * 1000 + 1 )) \
+  XDG_STATE_HOME="$expiry_state" HOME="$fake_home" GROK_HOME="$fake_home/.grok" \
+  python3 bin/burnbar-collect --no-local --window 360 --buckets 12
+jq -e --arg file "$zc" '.files | has($file) | not' \
+  "$expiry_state/omarchy/burnbar/scan-cache.json" >/dev/null \
+  || fail "deleted rollout still cached after the retention horizon"
+ok "a deleted rollout ages out of both the display window and cache retention"
 
 # A machine that only has Grok must not claim Claude or Codex are present.
 grok_only="$tmp/grok-only"

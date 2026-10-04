@@ -315,6 +315,22 @@ live:
 - **Grok**: `~/.grok/sessions/**/updates.jsonl`, `_meta.totalTokens` rise per
   `promptId` (estimate; Grok leaves no full API ledger). Weekly credits from
   `~/.grok/logs/unified.jsonl` billing snapshots.
+- **Zcode**: `~/.zcode/cli/rollout/model-io-sess_*.jsonl`, one line per
+  completed model request with its own usage object and the model id that
+  served it. zcode's inputTokens is a bundle (input plus cache write plus
+  cache read), so the fresh input is taken back out before the heat; cache
+  reads ride in the split and stay out of it. The rollout store is a ring
+  rather than a ledger (three files, a 64 MiB reset, deletions), so requests
+  already counted survive their file being truncated or deleted until they
+  age out of the window, de-duplicated by request id. Burn only: no plan
+  meter is read (Z.ai's quota endpoint is undocumented), so the lane has no
+  limits rows and no pace advice. Only this machine's rollout directory is
+  read; the older `agents/*` transcript store is not read. Request IDs must
+  be nonempty strings without control characters; unusable IDs are skipped
+  with one warning per file scan, and full IDs are kept for deduplication.
+  Upgrading from the earlier Zcode cache rebuilds this lane from disk;
+  already-deleted legacy rollouts cannot recover their full IDs and are dropped.
+
 - **Limits**: read straight off the records `omarchy-agent-usage-update` keeps
   in `~/.local/state/omarchy/agents/usage/`. Burn Bar keeps those records
   fresh itself by running `omarchy-agent-usage-update --limits-only claude

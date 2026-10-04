@@ -43,6 +43,7 @@ Panel {
     if (s && s.codexPresent) out.push({ id: "codex", label: "Codex", accent: w.codexHot, note: paceNote("codex") })
     if (s && s.grokPresent) out.push({ id: "grok", label: "Grok", accent: w.grokHot, note: paceNote("grok") })
     if (s && s.kimiPresent) out.push({ id: "kimi", label: "Kimi", accent: w.kimiHot, note: paceNote("kimi") })
+    if (s && s.zcodePresent) out.push({ id: "zcode", label: "Zcode", accent: w.zcodeHot, note: paceNote("zcode") })
     if (s && s.hasComputeGpu) out.push({ id: "local", label: "Local GPU", accent: w.localHot, note: "" })
     var lanes = w.focusLanes || []
     // With nothing singled out every subscription IS showing, so every box is
@@ -322,6 +323,7 @@ Panel {
       : agent === "codex" ? svc.codexTrailing5
       : agent === "grok" ? svc.grokTrailing5
       : agent === "kimi" ? svc.kimiTrailing5
+      : agent === "zcode" ? svc.zcodeTrailing5
       : svc.localTokensTrailing5
   }
   function trailing60(agent) {
@@ -330,6 +332,7 @@ Panel {
       : agent === "codex" ? svc.codexTrailing60
       : agent === "grok" ? svc.grokTrailing60
       : agent === "kimi" ? svc.kimiTrailing60
+      : agent === "zcode" ? svc.zcodeTrailing60
       : svc.localTokensTrailing60
   }
   function windowTotal(agent) {
@@ -338,6 +341,7 @@ Panel {
       : agent === "codex" ? svc.codexTotal
       : agent === "grok" ? svc.grokTotal
       : agent === "kimi" ? svc.kimiTotal
+      : agent === "zcode" ? svc.zcodeTotal
       : svc.localTokensTotal
   }
   function rateNow(agent) { return trailing5(agent) / 5 }
@@ -348,6 +352,7 @@ Panel {
   readonly property bool showCodex: widget.showCodex
   readonly property bool showGrok: widget.showGrok
   readonly property bool showKimi: widget.showKimi
+  readonly property bool showZcode: widget.showZcode
   // The lane needs burn to draw; a plan row only needs a plan. Kimi's tier
   // comes back from /me, so the subscription is known before a single token
   // has gone through it.
@@ -878,26 +883,26 @@ Panel {
     return (v === undefined || v === null) ? fallback : v
   }
   function agentName(a) {
-    return a === "claude" ? "Claude" : a === "codex" ? "Codex" : a === "grok" ? "Grok" : "Kimi"
+    return a === "claude" ? "Claude" : a === "codex" ? "Codex" : a === "grok" ? "Grok" : a === "kimi" ? "Kimi" : a === "zcode" ? "Zcode" : "Kimi"
   }
   function agentHot(a) {
     var w = panel.widget
-    return a === "claude" ? w.claudeHot : a === "codex" ? w.codexHot : a === "grok" ? w.grokHot : w.kimiHot
+    return a === "claude" ? w.claudeHot : a === "codex" ? w.codexHot : a === "grok" ? w.grokHot : a === "kimi" ? w.kimiHot : a === "zcode" ? w.zcodeHot : w.kimiHot
   }
   function agentWarm(a) {
     var w = panel.widget
-    return a === "claude" ? w.claudeWarm : a === "codex" ? w.codexWarm : a === "grok" ? w.grokWarm : w.kimiWarm
+    return a === "claude" ? w.claudeWarm : a === "codex" ? w.codexWarm : a === "grok" ? w.grokWarm : a === "kimi" ? w.kimiWarm : a === "zcode" ? w.zcodeWarm : w.kimiWarm
   }
   function agentCold(a) {
     var w = panel.widget
-    return a === "claude" ? w.claudeCold : a === "codex" ? w.codexCold : a === "grok" ? w.grokCold : w.kimiCold
+    return a === "claude" ? w.claudeCold : a === "codex" ? w.codexCold : a === "grok" ? w.grokCold : a === "kimi" ? w.kimiCold : a === "zcode" ? w.zcodeCold : w.kimiCold
   }
   function agentShown(a) {
     return a === "claude" ? showClaude : a === "codex" ? showCodex
-      : a === "grok" ? showGrok : a === "kimi" ? showKimi : false
+      : a === "grok" ? showGrok : a === "kimi" ? showKimi : a === "zcode" ? showZcode : false
   }
   readonly property int cardCount: (showClaude ? 1 : 0) + (showCodex ? 1 : 0) + (showGrok ? 1 : 0)
-    + (showKimi ? 1 : 0) + (showLocal ? 1 : 0)
+    + (showKimi ? 1 : 0) + (showZcode ? 1 : 0) + (showLocal ? 1 : 0)
 
   // The 5-hour window is opt-in: it resets before it can hurt, and the weekly
   // and monthly windows are the ones that actually end a working day.
@@ -2102,29 +2107,34 @@ Panel {
               ? (panel.showClaude ? panel.svc.claudeTurns : 0)
                 + (panel.showCodex ? panel.svc.codexTurns : 0)
                 + (panel.showGrok ? panel.svc.grokTurns : 0)
-                + (panel.showKimi ? panel.svc.kimiTurns : 0) : 0)) + " turns  ·  "
+                + (panel.showKimi ? panel.svc.kimiTurns : 0)
+                + (panel.showZcode ? panel.svc.zcodeTurns : 0) : 0)) + " turns  ·  "
             + ((panel.svc
               ? (panel.showClaude ? panel.svc.claudeSessions : 0)
                 + (panel.showCodex ? panel.svc.codexSessions : 0)
                 + (panel.showGrok ? panel.svc.grokSessions : 0)
-                + (panel.showKimi ? panel.svc.kimiSessions : 0) : 0)) + " sessions"
+                + (panel.showKimi ? panel.svc.kimiSessions : 0)
+                + (panel.showZcode ? panel.svc.zcodeSessions : 0) : 0)) + " sessions"
             + (panel.showLocal && panel.localTokens ? "  ·  " + Math.round(panel.offload * 100) + "% kept on " + panel.boxName : "")
           detail: panel.svc
             ? panel.widget.compact(
                 (panel.showClaude ? panel.rateNow("claude") : 0)
                 + (panel.showCodex ? panel.rateNow("codex") : 0)
                 + (panel.showGrok ? panel.rateNow("grok") : 0)
-                + (panel.showKimi ? panel.rateNow("kimi") : 0)) + "/min last 5m  ·  "
+                + (panel.showKimi ? panel.rateNow("kimi") : 0)
+                + (panel.showZcode ? panel.rateNow("zcode") : 0)) + "/min last 5m  ·  "
               + panel.widget.compact(
                 (panel.showClaude ? panel.rateHour("claude") : 0)
                 + (panel.showCodex ? panel.rateHour("codex") : 0)
                 + (panel.showGrok ? panel.rateHour("grok") : 0)
-                + (panel.showKimi ? panel.rateHour("kimi") : 0)) + "/min last hour  ·  "
+                + (panel.showKimi ? panel.rateHour("kimi") : 0)
+                + (panel.showZcode ? panel.rateHour("zcode") : 0)) + "/min last hour  ·  "
               + "active " + panel.agoText(Math.max(
                 panel.showClaude ? panel.svc.claudeLastAt : 0,
                 panel.showCodex ? panel.svc.codexLastAt : 0,
                 panel.showGrok ? panel.svc.grokLastAt : 0,
-                panel.showKimi ? panel.svc.kimiLastAt : 0))
+                panel.showKimi ? panel.svc.kimiLastAt : 0,
+                panel.showZcode ? panel.svc.zcodeLastAt : 0))
             : ""
           foreground: panel.widget.claudeHot
           fontFamily: panel.fontFamily
@@ -2149,7 +2159,8 @@ Panel {
                     ? (panel.showClaude ? panel.svc.claudeTotal : 0)
                       + (panel.showCodex ? panel.svc.codexTotal : 0)
                       + (panel.showGrok ? panel.svc.grokTotal : 0)
-                      + (panel.showKimi ? panel.svc.kimiTotal : 0) : 0
+                      + (panel.showKimi ? panel.svc.kimiTotal : 0)
+                      + (panel.showZcode ? panel.svc.zcodeTotal : 0) : 0
                   format: panel.widget.compact
                   color: panel.widget.claudeHot
                   font.pixelSize: Style.font.displayLarge
@@ -2229,7 +2240,7 @@ Panel {
           spacing: Style.space(14)
 
           Repeater {
-            model: ["claude", "codex", "grok", "kimi"]
+            model: ["claude", "codex", "grok", "kimi", "zcode"]
             delegate: SubCard {
               required property string modelData
               agent: modelData

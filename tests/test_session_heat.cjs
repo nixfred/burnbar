@@ -22,7 +22,7 @@ function extract(name) {
   }
   throw new Error('unbalanced braces in ' + name);
 }
-for (const f of ['paceLive', 'spanShort', 'sessionHeat', 'sessionOutranks', 'sessionChipWords']) vm.runInContext(extract(f), ctx);
+for (const f of ['paceLive', 'spanShort', 'clockSpan', 'spanWords', 'sessionHeat', 'sessionOutranks', 'sessionChipWords', 'sessionRowWords']) vm.runInContext(extract(f), ctx);
 
 const MIN = 60e3, HOUR = 3600e3, DAY = 24 * HOUR, WEEK = 7 * DAY, SESSION = 5 * HOUR;
 const NOW = 1_800_000_000_000;
@@ -168,4 +168,42 @@ test('once the dry moment has passed the chip says so instead of sticking at 1M'
   assert.equal(w.text, 'CLAUDE 5-HOUR  RUNNING OUT');
   assert.equal(w.short, '5H OUT NOW');
   assert.equal(ctx.sessionChipWords(h, NOW + 40 * MIN).text, 'CLAUDE 5-HOUR  RUNNING OUT');
+});
+
+// The card's row: a stand-in clock that names the moment, so the forms can be
+// read exactly. Minutes after NOW.
+const clock = (ms) => 'T+' + Math.round((ms - NOW) / MIN) + 'm';
+
+test('the card row leads with the run-out time in every form, longest first', () => {
+  const h = ctx.sessionHeat(session(0.50, 0.55, { dryAt: NOW + 40 * MIN }), week(0.30, 0.50), NOW);
+  assert.deepEqual(Array.from(ctx.sessionRowWords(h, NOW, clock)), [
+    'out T+40m  ·  resets T+135m  ·  in 2:15:00',
+    'out T+40m  ·  resets in 2:15:00',
+    'out T+40m  ·  resets in 2h 15m',
+    'out T+40m',
+  ]);
+});
+
+test('a narrower card row drops the reset clock, then the seconds, never the run-out', () => {
+  const h = ctx.sessionHeat(session(0.60, 0.20, { dryAt: NOW + 2 * HOUR }), week(0.50, 0.50), NOW);
+  const forms = Array.from(ctx.sessionRowWords(h, NOW, clock));
+  for (const f of forms) assert.ok(f.startsWith('out T+120m'), f);
+  for (let i = 1; i < forms.length; i++) assert.ok(forms[i].length < forms[i - 1].length, forms[i]);
+  assert.match(forms[0], /resets T\+240m/);
+  assert.doesNotMatch(forms[1], /T\+240m/);
+});
+
+test('a spent card row has no run-out, only the way back', () => {
+  const h = ctx.sessionHeat(session(1.0, 0.60, { dryAt: NOW + MIN }), week(0.30, 0.50), NOW);
+  assert.deepEqual(Array.from(ctx.sessionRowWords(h, NOW, clock)), [
+    'resets T+120m  ·  in 2:00:00',
+    'resets in 2:00:00',
+    'resets in 2h',
+  ]);
+});
+
+test('the card row counts down from the present, and a calm window has none', () => {
+  const h = ctx.sessionHeat(session(0.50, 0.55, { dryAt: NOW + 40 * MIN }), week(0.30, 0.50), NOW);
+  assert.equal(ctx.sessionRowWords(h, NOW + 25 * MIN, clock)[1], 'out T+40m  ·  resets in 1:50:00');
+  assert.equal(ctx.sessionRowWords(ctx.sessionHeat(session(0.20, 0.50), week(0.40, 0.50), NOW), NOW, clock).length, 0);
 });

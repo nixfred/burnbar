@@ -1502,9 +1502,9 @@ Panel {
       // ── the 5-hour window, only while it is the one that bites ─────────
       // Calm, it stays behind the 5-hour switch in SETUP. Hot (spent, or
       // running dry before its reset at the measured rate), it is on the card
-      // even with the switch off: how much, when it resets by the clock and
-      // counting down, and its own OVER / WAY OVER verdict when its ratio
-      // earns it, otherwise why it is hot. With the switch on the regular rows
+      // even with the switch off: how much, when it runs out, when it resets
+      // by the clock and counting down, and its own OVER / WAY OVER verdict
+      // when its ratio earns it, otherwise why it is hot. With the switch on the regular rows
       // below already list it, so this one stands down.
       Rectangle {
         id: shortWindow
@@ -1537,16 +1537,32 @@ Panel {
             text: shortWindow.heat && shortWindow.heat.hot
               ? "5-HOUR " + Math.round(shortWindow.heat.used * 100) + "%" : ""
           }
-          Caption {
+          // Run-out first, because it is the fact that matters here. Side by
+          // side with another card the full line does not fit, so it takes
+          // the longest form that does, measured, rather than eliding the end.
+          // The room is the holder's, which only the layout sizes; the text's
+          // own width would follow the words it is choosing.
+          Item {
+            id: shortRoom
             Layout.fillWidth: true
-            text: {
+            implicitHeight: shortWords.implicitHeight
+            readonly property var forms: {
               void panel.tick
-              var h = shortWindow.heat
-              if (!h || !h.hot) return ""
-              return "resets " + Qt.formatDateTime(new Date(h.resetsMs), "h:mm AP")
-                + "  ·  in " + panel.widget.clockSpan(h.resetsMs - Date.now())
-                + (h.dryAt > 0 ? "  ·  runs out " + Qt.formatDateTime(new Date(h.dryAt), "h:mm AP") : "")
+              return panel.widget.sessionRowWords(shortWindow.heat, Date.now(),
+                function(ms) { return Qt.formatDateTime(new Date(ms), "h:mm AP") })
             }
+            Caption {
+              id: shortWords
+              width: shortRoom.width
+              anchors.verticalCenter: parent.verticalCenter
+              text: {
+                var f = shortRoom.forms
+                for (var i = 0; i < f.length - 1; i++)
+                  if (Math.ceil(shortMetrics.advanceWidth(f[i])) <= shortRoom.width) return f[i]
+                return f.length > 0 ? f[f.length - 1] : ""
+              }
+            }
+            FontMetrics { id: shortMetrics; font: shortWords.font }
           }
           Pill { text: shortWindow.v.word; tone: shortWindow.v.color }
         }

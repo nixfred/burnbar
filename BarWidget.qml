@@ -1252,6 +1252,23 @@ BarWidget {
              third: "5H " + (heat.reason === "spent" ? "SPENT" : Math.round(heat.used * 100) + "%"),
              mult: "5H" }
   }
+  // The Claude card's 5-hour row, longest first, so a narrow card can take the
+  // longest that fits instead of eliding. The run-out time leads every form
+  // and is never the part that goes: the reset's clock time is dropped first,
+  // then the countdown loses its seconds, and last the reset itself. A spent
+  // window has no run-out left to show. clock(ms) is the time of day, the
+  // countdown runs from nowMs. Pure, so it is tested.
+  function sessionRowWords(heat, nowMs, clock) {
+    if (!heat || !heat.hot) return []
+    var left = heat.resetsMs - (Number(nowMs) || Date.now())
+    var out = heat.dryAt > 0 ? "out " + clock(heat.dryAt) : ""
+    var lead = out !== "" ? out + "  ·  " : ""
+    var forms = [lead + "resets " + clock(heat.resetsMs) + "  ·  in " + clockSpan(left),
+                 lead + "resets in " + clockSpan(left),
+                 lead + "resets in " + spanWords(left)]
+    if (out !== "") forms.push(out)
+    return forms
+  }
   // Claude is the only subscription this watches for now; the others' short
   // windows stay behind the showSession switch.
   readonly property var claudeSessionHeat: {

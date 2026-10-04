@@ -238,8 +238,9 @@ The four places a subscription can stand, from the same capture:
 monthly windows are usually the ones that bite. Turn them on in SETUP and they
 take their place above the rest. Hidden or not, a full one still stops its sub
 from being suggested, and when Claude's is the one about to run out the Claude
-card shows it anyway: how much is gone, when it resets by the clock and
-counting down, and its own OVER / WAY OVER verdict when its ratio earns it,
+card shows it anyway: how much is gone, when it runs out first, then when it
+resets by the clock and counting down (a narrow card shortens the reset, never
+the run-out), and its own OVER / WAY OVER verdict when its ratio earns it,
 otherwise RUNNING DRY or SPENT. Calm, it stays out of the way.
 
 ![The same cards with 5-hour session windows turned on](docs/img/session-windows.png)

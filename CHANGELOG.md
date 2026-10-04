@@ -19,7 +19,8 @@
   clock like the card's. It outranks a week that is merely over pace, because
   it locks you out in hours; a week that is spent or way over keeps the chip.
   Clicking answers it until it gets worse or the next 5-hour window starts.
-  The switch now reads "only when Claude's bites" off and "always" on.
+  The switch is now labelled "5-hour windows" and reads "only when Claude's
+  bites" off and "always" on, so neither is cut off in SETUP.
 - **One pulse.** While the 5-hour chip shows, it is the only thing on the strip
   or in the cockpit that pulses: the live cell, a 90% gauge, the local core,
   the burndown dot, the live bar and the card glows all hold still.

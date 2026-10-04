@@ -2066,7 +2066,7 @@ Panel {
             SetupRow {
               mark: panel.showSessionWindows ? "☑" : "☐"
               on: panel.showSessionWindows
-              label: "5-hour session windows"
+              label: "5-hour windows"
               note: panel.showSessionWindows ? "always" : "only when Claude's bites"
               onActivated: panel.widget.toggleSessionWindows()
             }

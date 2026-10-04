@@ -157,8 +157,9 @@ weight as metered cloud spend, and it is on a different clock entirely
 Each section carries a tinted plate and a baseline in its own identity hue,
 Claude orange, Codex teal, local violet. Hovering a section brightens it and
 shows a tooltip for **that agent only**: totals, the current bucket, session
-count and weekly quota for the cloud lanes; state, load, backend, resident
-model and warm-model count for local.
+count and weekly quota for the cloud lanes (plus Claude's 5-hour window while
+it is about to run out); state, load, backend, resident model and warm-model
+count for local.
 
 | Input | Does |
 |---|---|

@@ -904,8 +904,9 @@ Panel {
   readonly property int cardCount: (showClaude ? 1 : 0) + (showCodex ? 1 : 0) + (showGrok ? 1 : 0)
     + (showKimi ? 1 : 0) + (showZcode ? 1 : 0) + (showLocal ? 1 : 0)
 
-  // The 5-hour window is opt-in: it resets before it can hurt, and the weekly
-  // and monthly windows are the ones that actually end a working day.
+  // The 5-hour window is opt-in here: the weekly and monthly windows are the
+  // ones that usually end a working day. Claude's still shows on its card while
+  // it is the one about to run out (shortWindow below), whatever the switch says.
   function isSessionWindow(label) { return /session|5-hour/i.test(String(label || "")) }
   function agentWindows(a) {
     var rows = sv(a, "Limits", []) || []

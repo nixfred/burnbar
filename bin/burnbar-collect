@@ -1622,7 +1622,7 @@ def pace_for(row, key, live):
     if elapsed >= 0.01:
         out["ratio"] = pct / elapsed
     # Only the rows this machine samples can carry a rate.
-    rate = recent_rate_per_hour([p for p in points if p[2] == resets], window) if live else None
+    rate = recent_rate_per_hour([p for p in points if p[2] == resets], out["fullWindowMs"]) if live else None
     if rate is not None:
         out["ratePerHour"] = rate
         projected = pct + rate * hours_left

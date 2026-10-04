@@ -39,6 +39,33 @@ def iso(ms):
     return datetime.datetime.fromtimestamp(ms / 1000, datetime.timezone.utc).isoformat()
 
 
+def slope_per_hour(points, since):
+    """Plain least squares over the (t, pct) points at or after `since`, as a
+    fraction per hour: the figure a fit of exactly that span must produce."""
+    pts = [(t, p) for t, p in points if t >= since]
+    n = len(pts)
+    mt = sum(t for t, _ in pts) / n
+    mp = sum(p for _, p in pts) / n
+    return sum((t - mt) * (p - mp) for t, p in pts) / sum((t - mt) ** 2 for t, _ in pts) * HOUR
+
+
+def bent_series(end, base, step=5 * 60_000, hours=3):
+    """`hours` of samples ending at `end`: flat at `base` until two hours out,
+    a slow point an hour for the next hour, then five points an hour. The
+    slope differs for every span, so a fit of the wrong length shows."""
+    pts = []
+    for k in range(int(hours * HOUR / step), -1, -1):
+        t = end - k * step
+        if t <= end - 2 * HOUR:
+            pct = base
+        elif t <= end - HOUR:
+            pct = base + 0.01 * ((t - (end - 2 * HOUR)) / HOUR)
+        else:
+            pct = base + 0.01 + 0.05 * ((t - (end - HOUR)) / HOUR)
+        pts.append((t, pct))
+    return pts
+
+
 class WindowLengthTests(unittest.TestCase):
     def setUp(self):
         self.ns = load()
@@ -162,6 +189,21 @@ class GiftResetTests(unittest.TestCase):
         p, _ = self.pace([(NOW - DAY, 0.40), (NOW - HOUR, 0.41), (NOW - 30 * 60_000, 0.40)], 0.42)
         self.assertEqual(p["giftAt"], 0)
         self.assertEqual(p["windowMs"], 7 * DAY)
+
+    def test_a_gift_late_in_the_week_keeps_the_two_hour_rate_fit(self):
+        # The meter is wiped 18 hours before the reset: the budget is re-based
+        # on the gift, but the rate is still fitted over the week's own two
+        # hours, not a tenth of what is left (108 minutes).
+        gift = NOW - 3 * HOUR
+        after = bent_series(NOW, 0.0)
+        pts = [(NOW - DAY, 0.50), (gift - 5 * 60_000, 0.53)] + after
+        p, resets = self.pace(pts, after[-1][1], left=15 * HOUR)
+        self.assertEqual(p["giftAt"], gift)
+        self.assertEqual(p["fullWindowMs"], 7 * DAY)
+        self.assertEqual(p["windowMs"], resets - gift)
+        self.assertLess(p["windowMs"], 20 * HOUR)
+        self.assertAlmostEqual(p["ratePerHour"], slope_per_hour(after, NOW - 2 * HOUR), places=9)
+        self.assertGreater(abs(p["ratePerHour"] - slope_per_hour(after, NOW - 108 * 60_000)), 1e-4)
 
     def test_a_normal_rollover_is_not_a_gift(self):
         # Last week's 82% carries last week's reset, so it is another window.
@@ -358,22 +400,19 @@ class PaceTests(unittest.TestCase):
         self.assertLess(dry, resets)
 
     def test_a_week_keeps_the_two_hour_rate_fit(self):
-        # Three hours of samples: flat for the first hour, then 2 points an
-        # hour. A two-hour fit sees only the climb; anything longer would
-        # drag the slope down, anything shorter is a different fit.
+        # The series bends inside the last two hours, so the two-hour fit, a
+        # one-hour fit, a 100-minute fit (a week's tenth of a tenth) and the
+        # whole three hours all give different slopes.
         ns = load()
         resets = ns["window_id"](NOW + 3 * DAY)
-        step = 5 * 60_000
-        pts = []
-        for k in range(36, -1, -1):
-            t = NOW - k * step
-            pct = 0.30 if t <= NOW - 2 * HOUR else 0.30 + 0.02 * ((t - (NOW - 2 * HOUR)) / HOUR)
-            pts.append((t, pct, resets))
-        ns["PACE"]["samples"]["claude|w"] = pts
+        pts = bent_series(NOW, 0.30)
+        ns["PACE"]["samples"]["claude|w"] = [(t, p, resets) for t, p in pts]
         p = ns["pace_for"](self.row(pts[-1][1], resets, "Weekly (7-day)"), "claude|w", True)
         self.assertEqual(p["windowMs"], 7 * DAY)
-        self.assertAlmostEqual(p["ratePerHour"], 0.02, places=6)
-        self.assertAlmostEqual(p["ratePerHour"], ns["recent_rate_per_hour"](pts), places=9)
+        two_hours = slope_per_hour(pts, NOW - 2 * HOUR)
+        self.assertAlmostEqual(p["ratePerHour"], two_hours, places=9)
+        for other in (NOW - HOUR, NOW - 100 * 60_000, NOW - 3 * HOUR):
+            self.assertGreater(abs(p["ratePerHour"] - slope_per_hour(pts, other)), 1e-4)
 
 
 if __name__ == "__main__":

@@ -1769,17 +1769,36 @@ Panel {
       // back to the window beneath it while the panel is still up. A click
       // outside closes the panel before this runs, so while we are open any
       // focus loss is theft: prime Exclusive again and take the keys back.
+      // Fred, 2026-10-02: a region screenshot with the panel open fought it.
+      // slurp (and hyprpicker, wayfreeze) take the keyboard as an overlay
+      // layer, which reads here as theft. Ask first, and yield to a picker.
       readonly property bool windowActive: Window.active
       onWindowActiveChanged: if (!windowActive) refocusTimer.restart()
       Timer {
         id: refocusTimer
         interval: 30
         onTriggered: {
+          if (!panel.opened || keyCatcher.windowActive || pickerCheck.running) return
+          pickerCheck.running = true
+        }
+      }
+      Process {
+        id: pickerCheck
+        command: ["pgrep", "-x", "slurp|hyprpicker|wayfreeze"]
+        // pgrep exits 0 when a picker is up: leave the keys with it, and
+        // look again shortly so Esc works once the screenshot is taken.
+        onExited: function(code) {
           if (!panel.opened || keyCatcher.windowActive) return
+          if (code === 0) { pickerRetry.restart(); return }
           kpanel.focusPrimed = false
           kpanel.beginFocusPrime()
           keyCatcher.forceActiveFocus()
         }
+      }
+      Timer {
+        id: pickerRetry
+        interval: 500
+        onTriggered: refocusTimer.restart()
       }
       onTabRequested: direction => panel.switchPanel(direction)
       onTextKey: function(text) {

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "nixfred.burnbar",
   "name": "Burn Bar",
-  "version": "2.2.4",
+  "version": "2.3.0",
   "author": "nixfred",
   "license": "MIT",
   "description": "Live thermal heat map of the AIs this machine actually uses (Claude, Codex, Grok, Kimi, and local Ollama when a GPU is present), with budget pacing per subscription, quota gauges, and the share of tokens kept off frontier models.",
@@ -98,7 +98,7 @@
         "key": "showSession",
         "type": "boolean",
         "label": "Show 5-hour session windows",
-        "description": "Off by default: the weekly and monthly windows are the ones that bite."
+        "description": "Off by default: Claude's 5-hour window still appears on its card and the strip whenever it is the one about to run out. On lists every 5-hour window all the time."
       },
       {
         "key": "maxPerLane",

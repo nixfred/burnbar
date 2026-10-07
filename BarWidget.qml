@@ -471,6 +471,9 @@ BarWidget {
       return "CLAUDE  ·  " + compact(svc.claudeTotal) + " tokens / last " + span
         + "\nnow " + compact(svc.claudeLatest) + " this bucket  ·  " + svc.claudeSessions + " sessions"
         + "\nweekly quota " + quotaText(svc.claudeWeekly, svc.claudeLimitsMeasuredAt)
+        + (claudeSessionHeat.hot ? "\n5-hour window " + Math.round(claudeSessionHeat.used * 100) + "%  ·  resets "
+            + Qt.formatDateTime(new Date(claudeSessionHeat.resetsMs), "h:mm AP")
+            + " (in " + spanWords(claudeSessionHeat.resetsMs - Date.now()) + ")" : "")
         + adviceLines("claude")
     if (zone === zoneCodex)
       return "CODEX  ·  " + compact(svc.codexTotal) + " tokens / last " + span
@@ -936,6 +939,19 @@ BarWidget {
                stage: stage, key: key, resets: resets,
                color: r > 1.5 ? urgent : Qt.lighter(urgent, 1.35), ratio: r }
     }
+    // A hot 5-hour window outranks a week that is merely over pace, not one
+    // that is spent or way over (sessionOutranks). Answered the same way,
+    // keyed to its own reset so the next 5-hour window starts unanswered.
+    var heat = claudeSessionHeat
+    if (sessionOutranks(best.stage, heat) && focusOk("claude")) {
+      var sseen = root.paceAck ? root.paceAck["claude|session"] : null
+      if (!(sseen && Number(sseen.stage) >= heat.stage && Number(sseen.resets) === heat.resetsMs)) {
+        var sw = sessionChipWords(heat, Date.now())
+        return { text: sw.text, short: sw.short, third: sw.third, mult: sw.mult,
+                 stage: heat.stage, key: "claude|session", resets: heat.resetsMs,
+                 color: urgent, session: true }
+      }
+    }
     return best
   }
 
@@ -1166,6 +1182,100 @@ BarWidget {
     }
     return 0
   }
+
+  // ── the 5-hour window, when it is the one that bites ───────────────────
+  // Fred, 2026-09-20: "I really don't care about the 5hr window so make that
+  // optional to TURN ON but not on by default." Fred, 2026-10-03, after it
+  // nearly ran dry mid-work while the bar showed only the week: "Add the
+  // 5-hour measurements ... about to bite me." Both are true: calm by
+  // default, loud when the short window is the binding one. showSession still
+  // means "always list it"; off now means "only when it is hot".
+  function sessionLimit(id) {
+    var rows = subLimits(id)
+    for (var i = 0; i < rows.length; i++)
+      if (isSessionLabel(rows[i].label) && limitUsable(id, rows[i])) return rows[i]
+    return null
+  }
+  // Is the 5-hour window about to bite? session is the limit row (percent,
+  // resetsAt, and the collector's pace block), weekLive is paceLive() for the
+  // week or null, nowMs the moment the figure stands for. Hot only when the
+  // window cannot last to its own reset:
+  //   spent   the window is used up before its reset
+  //   dry     the measured rate runs it dry before it resets (collector dryAt,
+  //           which is only ever set when the projection crosses the ceiling
+  //           inside the window)
+  // How much is gone and how far over its even pace it is are not reasons on
+  // their own: 70% with the clock on its side, or a pace the window can carry
+  // to its reset, is not news. They feed the stage, so an answered warning
+  // re-opens when it gets worse: dry 1, dry and over its own pace 2, spent 4.
+  // A week that is already spent is the wall, so the 5-hour window says
+  // nothing then. The pace is the same paceLive() the week uses. Pure, so it
+  // is tested.
+  function sessionHeat(session, weekLive, nowMs) {
+    var calm = { hot: false, reason: "", stage: 0, used: -1, resetsMs: 0, dryAt: 0, spent: false }
+    if (!session || !(Number(session.percent) >= 0)) return calm
+    if (weekLive && weekLive.spent) return calm
+    var pace = session.pace || {}
+    var reset = Number(pace.resetsMs) || Date.parse(String(session.resetsAt || "")) || 0
+    var now = Number(nowMs) || Date.now()
+    var live = paceLive(session.percent, reset, Number(pace.windowMs) || 5 * 3600000, now)
+    if (!live) return calm
+    var dryAt = Number(pace.dryAt) || 0
+    var dry = dryAt > now && dryAt < reset
+    if (!live.spent && !dry) return calm
+    return { hot: true, reason: live.spent ? "spent" : "dry",
+             stage: live.spent ? 4 : live.over ? 2 : 1,
+             used: live.used, resetsMs: reset,
+             dryAt: dry && !live.spent ? dryAt : 0, spent: live.spent }
+  }
+  // Which warning the strip carries when the week and the 5-hour window both
+  // have one. A week that is spent or way over (stage 2 and up) is the wall
+  // already, so it keeps the chip and the one pulse; the 5-hour window
+  // outranks only a week that is merely over pace, or none, because it locks
+  // Claude out in hours and that week in days. Pure, so it is tested.
+  function sessionOutranks(weekStage, heat) {
+    return !!(heat && heat.hot) && !(Number(weekStage) >= 2)
+  }
+  // The strip chip's words for a hot 5-hour window, counted down from nowMs,
+  // the present. Every form names the 5-hour window, because "CLAUDE REST 2H"
+  // already means the week. Once the dry moment has passed and the collector
+  // has not re-measured yet, the window is running out now, not "in 1M". Pure.
+  function sessionChipWords(heat, nowMs) {
+    if (!heat || !heat.hot) return { text: "", short: "", third: "", mult: "" }
+    var now = Number(nowMs) || Date.now()
+    var outIn = heat.dryAt - now
+    var word = heat.reason === "spent" ? "SPENT, BACK " + spanShort(heat.resetsMs - now)
+      : outIn > 0 ? "OUT IN " + spanShort(outIn) : "RUNNING OUT"
+    var brief = heat.reason === "spent" ? "BACK " + spanShort(heat.resetsMs - now)
+      : outIn > 0 ? "OUT " + spanShort(outIn) : "OUT NOW"
+    return { text: "CLAUDE 5-HOUR  " + word, short: "5H " + brief,
+             third: "5H " + (heat.reason === "spent" ? "SPENT" : Math.round(heat.used * 100) + "%"),
+             mult: "5H" }
+  }
+  // The Claude card's 5-hour row, longest first, so a narrow card can take the
+  // longest that fits instead of eliding. The run-out time leads every form
+  // and is never the part that goes: the reset's clock time is dropped first,
+  // then the countdown loses its seconds, and last the reset itself. A spent
+  // window has no run-out left to show. clock(ms) is the time of day, the
+  // countdown runs from nowMs. Pure, so it is tested.
+  function sessionRowWords(heat, nowMs, clock) {
+    if (!heat || !heat.hot) return []
+    var left = heat.resetsMs - (Number(nowMs) || Date.now())
+    var out = heat.dryAt > 0 ? "out " + clock(heat.dryAt) : ""
+    var lead = out !== "" ? out + "  ·  " : ""
+    var forms = [lead + "resets " + clock(heat.resetsMs) + "  ·  in " + clockSpan(left),
+                 lead + "resets in " + clockSpan(left),
+                 lead + "resets in " + spanWords(left)]
+    if (out !== "") forms.push(out)
+    return forms
+  }
+  // Claude is the only subscription this watches for now; the others' short
+  // windows stay behind the showSession switch.
+  readonly property var claudeSessionHeat: {
+    void (svc ? svc.limitsTick : 0)
+    var now = Date.now()
+    return sessionHeat(sessionLimit("claude"), liveFor("claude", now), standingAt("claude", now))
+  }
   function subBurning(id) {
     if (!svc) return false
     return (id === "claude" ? svc.claudeTrailing5 : id === "codex" ? svc.codexTrailing5
@@ -1209,10 +1319,18 @@ BarWidget {
       if (!subMeta(id).present || !focusOk(id)) continue
       // A snapshot cannot be re-measured, so it has to be further ahead before it
       // is worth acting on, and further still once it has been used since.
-      rows.push({ id: id, live: liveFor(id, now), fresh: true, blocked: sessionBlock(id) > 0,
+      rows.push({ id: id, live: liveFor(id, now), fresh: true,
+                  blocked: guideBlocked(id, sessionBlock(id) > 0, claudeSessionHeat),
                   minBank: !isSnapshot(id) ? 0 : snapshotOutrun(id) ? 0.25 : 0.10 })
     }
     guidance = guidePick(rows, guidance ? guidance.pick : "")
+  }
+  // A sub the advice must not send anyone to. Claude's hot 5-hour window counts
+  // as well as a full one, so the strip never warns that Claude is running dry
+  // and recommends Claude in the same breath: one rule decides whether that
+  // window bites. Pure, so it is tested.
+  function guideBlocked(id, sessionBlocked, heat) {
+    return !!sessionBlocked || (id === "claude" && !!(heat && heat.hot))
   }
   Timer { interval: 30000; running: true; repeat: true; triggeredOnStart: true; onTriggered: root.refreshGuidance() }
   Connections {
@@ -1289,6 +1407,10 @@ BarWidget {
   }
   // A warning outranks advice: what to stop comes before what to start.
   readonly property var stripChip: worstPace.text !== "" ? worstPace : adviceChip
+  // Fred's motion rule: at most one thing pulses, the most urgent one. A hot
+  // 5-hour window on the chip is that thing, so every other beat on the strip
+  // and in the cockpit holds still while it shows.
+  readonly property bool sessionClaimsPulse: stripChip.session === true
 
   // ── state ─────────────────────────────────────────────────────────────────
   readonly property bool broken: svc ? svc.collectorBroken : false
@@ -1593,8 +1715,11 @@ BarWidget {
           border.color: root.whiteHot
           border.width: Style.spaceReal(1)
           // Visibility first, so a hidden ring never subscribes to the clock.
-          opacity: visible ? root.pulse(1800, 0, 0.55) : 0
-          readonly property PulseTicket ticket: PulseTicket { active: liveRing.visible }
+          // It holds still, still marking the live cell, while a hot 5-hour
+          // window owns the one pulse.
+          readonly property bool breathing: visible && !root.sessionClaimsPulse
+          opacity: breathing ? root.pulse(1800, 0, 0.55) : visible ? 0.3 : 0
+          readonly property PulseTicket ticket: PulseTicket { active: liveRing.breathing }
         }
       }
     }
@@ -1646,6 +1771,7 @@ BarWidget {
       // actually being on screen, and the fill sits at full whenever the beat
       // is off so a quota that drops under 90% mid-pulse is not left dim.
       readonly property bool beating: !gauge.unknown && gauge.percent >= 0.9 && gauge.visible && root.visible
+        && !root.sessionClaimsPulse
       opacity: beating ? root.pulse(1400, 1.0, 0.35) : 1
       readonly property PulseTicket ticket: PulseTicket { active: fill.beating }
     }
@@ -2282,10 +2408,12 @@ BarWidget {
             // Both beats are gated on the lane actually being shown, and each
             // property sits at rest whenever its beat is off.
             readonly property bool throbbing: root.localActive && root.visible && root.showLocal
+              && !root.sessionClaimsPulse
             scale: throbbing ? root.pulse(960, 0.94, 1.16) : 1
             readonly property PulseTicket throbTicket: PulseTicket { active: coreDot.throbbing }
             // Offline is a fault, and faults strobe rather than breathe.
             readonly property bool strobing: !root.localOnline && root.visible && root.showLocal
+              && !root.sessionClaimsPulse
             opacity: strobing ? root.pulse(1240, 1.0, 0.25) : 1
             readonly property PulseTicket strobeTicket: PulseTicket { active: coreDot.strobing }
           }

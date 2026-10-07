@@ -57,8 +57,10 @@ The rules it keeps, so the advice is worth acting on:
   nears.
 - **A lane you unticked is left out.** No card, no cells, no badge, no advice.
 - **A full 5-hour session window blocks a sub**, even with its week wide open,
-  and so does one that will be full inside half an hour. Sending you into a
-  wall is not guidance.
+  and so does one that will be full inside half an hour. Claude is blocked too
+  while its 5-hour window is the one that bites (see below), so the strip never
+  warns that it is running dry and suggests it in the same breath. Sending you
+  into a wall is not guidance.
 - **A snapshot is not treated as exact.** Grok only reports its quota when Grok
   starts, so that figure needs five times the margin before it is suggested,
   more again once Grok has been used since, and the words say when it was
@@ -116,6 +118,15 @@ it and it fades, and stays gone until that sub reaches a worse stage or its
 window rolls over. With nothing to warn about it names the sub to use next, in
 that sub's colour. Turn the advice off in SETUP if you only want warnings.
 
+Claude's 5-hour window gets the chip too, the moment it is the one that bites:
+running dry before its reset at the measured rate (`CLAUDE 5-HOUR  OUT IN 40M`,
+then `RUNNING OUT` once that moment passes) or spent (`SPENT, BACK 2H`). How
+much is gone and how far over pace it is are not reasons on their own: 70% with
+the clock on its side is not news. It outranks a week that is merely over pace,
+because it locks you out in hours and a week takes days; a week that is spent
+or way over keeps the chip, because that wall is already up. While the 5-hour
+chip shows it is the only thing on the strip or in the cockpit that pulses.
+
 ![Hovering a lane: the numbers, then where that sub stands](docs/img/tooltips.png)
 
 
@@ -148,8 +159,9 @@ weight as metered cloud spend, and it is on a different clock entirely
 Each section carries a tinted plate and a baseline in its own identity hue,
 Claude orange, Codex teal, local violet. Hovering a section brightens it and
 shows a tooltip for **that agent only**: totals, the current bucket, session
-count and weekly quota for the cloud lanes; state, load, backend, resident
-model and warm-model count for local.
+count and weekly quota for the cloud lanes (plus Claude's 5-hour window while
+it is about to run out); state, load, backend, resident model and warm-model
+count for local.
 
 | Input | Does |
 |---|---|
@@ -225,9 +237,13 @@ The four places a subscription can stand, from the same capture:
 ![The cards with tokens as the headline](docs/img/headline-tokens.png)
 
 **5-hour session windows** are hidden by default, because the weekly and
-monthly windows are the ones that bite. Turn them on in SETUP and they take
-their place above the rest. Hidden or not, a full one still stops its sub from
-being suggested.
+monthly windows are usually the ones that bite. Turn them on in SETUP and they
+take their place above the rest. Hidden or not, a full one still stops its sub
+from being suggested, and when Claude's is the one about to run out the Claude
+card shows it anyway: how much is gone, when it runs out first, then when it
+resets by the clock and counting down (a narrow card shortens the reset, never
+the run-out), and its own OVER / WAY OVER verdict when its ratio earns it,
+otherwise RUNNING DRY or SPENT. Calm, it stays out of the way.
 
 ![The same cards with 5-hour session windows turned on](docs/img/session-windows.png)
 
@@ -479,7 +495,7 @@ Set from the Omarchy plugin settings UI, or in `shell.json`.
 | `lanes` | `""` | Comma list of subscriptions to show (`claude,codex,grok,kimi`). Empty means every lane this machine knows |
 | `hero` | `budget` | Card headline: `budget` or `tokens` |
 | `glow` | `pace` | What lights a card up: `pace`, `burn`, `spent`, `stop` or `off` |
-| `showSession` | false | Show 5-hour session windows on the cards |
+| `showSession` | false | Always list 5-hour session windows on the cards. Off, Claude's still appears on its card and the strip while it is the one about to run out |
 | `advice` | true | With two or more subscriptions, name the one to use next on the strip when nothing is over pace. The local GPU is never suggested |
 | `maxWidth` | 2400 | Ceiling for the fill, px |
 | `stretchGap` | 14 | Breathing room kept between the strip and the neighbour it grows towards, px |

@@ -904,8 +904,9 @@ Panel {
   readonly property int cardCount: (showClaude ? 1 : 0) + (showCodex ? 1 : 0) + (showGrok ? 1 : 0)
     + (showKimi ? 1 : 0) + (showZcode ? 1 : 0) + (showLocal ? 1 : 0)
 
-  // The 5-hour window is opt-in: it resets before it can hurt, and the weekly
-  // and monthly windows are the ones that actually end a working day.
+  // The 5-hour window is opt-in here: the weekly and monthly windows are the
+  // ones that usually end a working day. With the switch off, Claude's still
+  // shows on its card while it is the one about to run out (shortWindow below).
   function isSessionWindow(label) { return /session|5-hour/i.test(String(label || "")) }
   function agentWindows(a) {
     var rows = sv(a, "Limits", []) || []
@@ -1169,10 +1170,11 @@ Panel {
       border.width: 1
       border.color: panel.widget.whiteHot
       SequentialAnimation on scale {
-        running: nowDot.visible && panel.opened
+        running: nowDot.visible && panel.opened && !panel.widget.sessionClaimsPulse
         loops: Animation.Infinite
         NumberAnimation { to: 1.35; duration: 900; easing.type: Easing.InOutQuad }
         NumberAnimation { to: 0.9; duration: 900; easing.type: Easing.InOutQuad }
+        onStopped: nowDot.scale = 1
       }
     }
     // The dry moment, when the present rate reaches the ceiling early.
@@ -1248,10 +1250,11 @@ Panel {
           property real breathe: 0.1
           opacity: Math.min(1, breathe + panel.chartFlash)
           SequentialAnimation on breathe {
-            running: bar.live && panel.opened
+            running: bar.live && panel.opened && !panel.widget.sessionClaimsPulse
             loops: Animation.Infinite
             NumberAnimation { to: 0.45; duration: 900; easing.type: Easing.InOutQuad }
             NumberAnimation { to: 0.06; duration: 900; easing.type: Easing.InOutQuad }
+            onStopped: liveBox.breathe = 0.3
           }
         }
       }
@@ -1299,9 +1302,10 @@ Panel {
     opacity: Math.min(1, level)
 
     // Breathing runs only while the panel is open and this card is lit: a
-    // closed panel animating four blurs would be heat for nobody.
+    // closed panel animating four blurs would be heat for nobody. It also
+    // holds still while a hot 5-hour window owns the one pulse on screen.
     SequentialAnimation {
-      running: panel.opened && cg.breathe && cg.strength > 0
+      running: panel.opened && cg.breathe && cg.strength > 0 && !panel.widget.sessionClaimsPulse
       loops: Animation.Infinite
       NumberAnimation { target: cg; property: "breath"; to: 0.5; duration: 1500; easing.type: Easing.InOutSine }
       NumberAnimation { target: cg; property: "breath"; to: 1; duration: 1500; easing.type: Easing.InOutSine }
@@ -1492,6 +1496,75 @@ Panel {
               : "spend evenly and it lasts"
           }
           Pill { visible: card.isPick; text: panel.guidance.urgent ? "USE NOW" : "USE NEXT"; tone: card.accent }
+        }
+      }
+
+      // ── the 5-hour window, only while it is the one that bites ─────────
+      // Calm, it stays behind the 5-hour switch in SETUP. Hot (spent, or
+      // running dry before its reset at the measured rate), it is on the card
+      // even with the switch off: how much, when it runs out, when it resets
+      // by the clock and counting down, and its own OVER / WAY OVER verdict
+      // when its ratio earns it, otherwise why it is hot. With the switch on
+      // the regular rows below already list it, so this one stands down.
+      Rectangle {
+        id: shortWindow
+        readonly property var heat: card.agent === "claude" ? panel.widget.claudeSessionHeat : null
+        readonly property var row: heat && heat.hot ? panel.widget.sessionLimit("claude") : null
+        readonly property var v: {
+          var pv = panel.paceVerdict(row, row === null)
+          if (row === null || pv.word === "OVER" || pv.word === "WAY OVER") return pv
+          return { word: heat.spent ? "SPENT" : "RUNNING DRY", color: Color.urgent }
+        }
+        readonly property color tone: heat && (heat.spent || heat.used >= 0.9) ? Color.urgent : Qt.lighter(Color.urgent, 1.35)
+        visible: row !== null && !panel.showSessionWindows
+        Layout.fillWidth: true
+        implicitHeight: Style.space(panel.tight(32, 30, 28))
+        radius: Style.space(6)
+        color: Util.alpha(tone, 0.10)
+        border.width: 1
+        border.color: Util.alpha(tone, 0.6)
+        RowLayout {
+          anchors.fill: parent
+          anchors.leftMargin: Style.space(10)
+          anchors.rightMargin: Style.space(8)
+          spacing: Style.space(8)
+          Text {
+            textFormat: Text.PlainText
+            color: shortWindow.tone
+            font.family: panel.fontFamily
+            font.pixelSize: Style.font.body
+            font.bold: true
+            text: shortWindow.heat && shortWindow.heat.hot
+              ? "5-HOUR " + Math.round(shortWindow.heat.used * 100) + "%" : ""
+          }
+          // Run-out first, because it is the fact that matters here. Side by
+          // side with another card the full line does not fit, so it takes
+          // the longest form that does, measured, rather than eliding the end.
+          // The room is the holder's, which only the layout sizes; the text's
+          // own width would follow the words it is choosing.
+          Item {
+            id: shortRoom
+            Layout.fillWidth: true
+            implicitHeight: shortWords.implicitHeight
+            readonly property var forms: {
+              void panel.tick
+              return panel.widget.sessionRowWords(shortWindow.heat, Date.now(),
+                function(ms) { return Qt.formatDateTime(new Date(ms), "h:mm AP") })
+            }
+            Caption {
+              id: shortWords
+              width: shortRoom.width
+              anchors.verticalCenter: parent.verticalCenter
+              text: {
+                var f = shortRoom.forms
+                for (var i = 0; i < f.length - 1; i++)
+                  if (Math.ceil(shortMetrics.advanceWidth(f[i])) <= shortRoom.width) return f[i]
+                return f.length > 0 ? f[f.length - 1] : ""
+              }
+            }
+            FontMetrics { id: shortMetrics; font: shortWords.font }
+          }
+          Pill { text: shortWindow.v.word; tone: shortWindow.v.color }
         }
       }
 
@@ -1993,8 +2066,8 @@ Panel {
             SetupRow {
               mark: panel.showSessionWindows ? "☑" : "☐"
               on: panel.showSessionWindows
-              label: "5-hour session windows"
-              note: "off by default"
+              label: "5-hour windows"
+              note: panel.showSessionWindows ? "always" : "only when Claude's bites"
               onActivated: panel.widget.toggleSessionWindows()
             }
 
@@ -2325,15 +2398,17 @@ Panel {
                   Behavior on width { NumberAnimation { duration: 320 } }
                 }
                 Rectangle {
+                  id: localCore
                   anchors.centerIn: parent
                   width: parent.width * 0.58; height: width; radius: width / 2
                   color: panel.localState
                   Behavior on color { ColorAnimation { duration: 260 } }
                   SequentialAnimation on scale {
-                    running: panel.localActive && panel.opened
+                    running: panel.localActive && panel.opened && !panel.widget.sessionClaimsPulse
                     loops: Animation.Infinite
                     NumberAnimation { to: 1.14; duration: 480; easing.type: Easing.InOutSine }
                     NumberAnimation { to: 0.94; duration: 480; easing.type: Easing.InOutSine }
+                    onStopped: localCore.scale = 1
                   }
                 }
                 Rectangle {

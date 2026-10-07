@@ -95,6 +95,9 @@ ok "guidance: banked only when ahead, a way back when behind, a pick only with a
 node tests/test_esc_guard.cjs >/dev/null 2>&1 \
   || fail "Esc guard tests"
 ok "Esc guard: a window taking the keys re-primes the panel; only slurp-style layers hold it off"
+node tests/test_session_heat.cjs >/dev/null 2>&1 \
+  || fail "5-hour window tests"
+ok "5-hour window: hot only when it bites, and the chip says 5-HOUR"
   ok "theme palette parses, hues are in range, every lane has a fallback key"
 }
 

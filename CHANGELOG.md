@@ -1,5 +1,39 @@
 # Changelog
 
+## 2.3.0 (2026-10-04)
+
+### Added
+- **Claude's 5-hour window speaks up when it is the one that bites.** It stayed
+  hidden unless the 5-hour switch was on (2026-09-20: the week is what usually
+  ends a working day), so on 2026-10-03 the 5-hour window nearly ran dry
+  mid-work while the bar showed only the week. It is still hidden while calm.
+  It counts as hot only when it cannot last to its own reset: the measured
+  rate runs it dry before the reset, or it is spent. How much is gone and how
+  far over its even pace it is are not reasons on their own. Hot, it is on the
+  Claude card even with the switch off (how much is gone, when it runs out
+  first, then the reset by the clock and counting down, which a narrow card
+  shortens before it ever cuts the run-out, and its own OVER / WAY OVER
+  verdict when its ratio earns it, otherwise RUNNING DRY or SPENT; with the
+  switch on the regular 5-hour row already lists it) and the strip chip names
+  it: `CLAUDE 5-HOUR  OUT IN 40M`, `RUNNING OUT` once that moment has passed,
+  or `SPENT, BACK 2H`, every countdown from the present
+  clock like the card's. It outranks a week that is merely over pace, because
+  it locks you out in hours; a week that is spent or way over keeps the chip.
+  Clicking answers it until it gets worse or the next 5-hour window starts.
+  The switch is now labelled "5-hour windows" and reads "only when Claude's
+  bites" off and "always" on, so neither is cut off in SETUP.
+- **One pulse.** While the 5-hour chip shows, it is the only thing on the strip
+  or in the cockpit that pulses: the live cell, a 90% gauge, the local core,
+  the burndown dot, the live bar and the card glows all hold still.
+- The Claude tooltip carries the 5-hour line while it is hot.
+- While Claude's 5-hour window is hot the advice never suggests Claude, so the
+  strip cannot warn that it is running dry and recommend it in the same breath.
+- The pace is the collector's own: the 5-hour row already had its pace block
+  and dry moment, so there is no second pace for it. Its rate is now fitted
+  over a tenth of the window (30 minutes of a 5-hour one) instead of two
+  hours, so a burst after a quiet spell shows up inside its first 15 minutes;
+  every window of 20 hours and up keeps the two-hour fit exactly.
+
 ## 2.2.4 (2026-10-04)
 
 ### Added

@@ -1,5 +1,28 @@
 # Changelog
 
+## 2.3.1 (2026-10-08)
+
+### Fixed
+- **Esc no longer reaches the window under the panel.** Fourth report
+  (2.1.1, 2.2.3 and 2.2.4 each patched one way the keys were lost). The cause
+  was the panel's keyboard mode: KeyboardPanel primes Exclusive for 75ms and
+  then settles on OnDemand, and Hyprland 0.56 treats an OnDemand layer as
+  nobody's: `refocusLastWindow()` skips it and hands the keyboard to the last
+  window whenever any layer or window unmaps, and only an Exclusive layer makes
+  `fullWindowFocus()` refuse a window. The panel now holds Exclusive for the
+  whole time it is open, which is the one state the compositor guarantees, and
+  the focus-loss timer and the foreign-layer counter are gone with the theft.
+  slurp, the menu and the clipboard still win while they are up, because they
+  map Exclusive after the panel and nothing here re-primes in front of them.
+- **The close waits for the Esc release.** Closing on the press dropped the
+  layer to None while Esc was still down, so Hyprland focused the terminal with
+  Esc in the keyboard-enter pressed set and then delivered the release to it. The
+  panel now closes when Esc comes up (or after 400ms if the release never
+  arrives). A click outside closes at once, as before.
+- A click outside the card on any monitor still closes the panel: with an
+  Exclusive layer Hyprland routes every click to it, and KeyboardPanel's own
+  dismiss area closes on any of them.
+
 ## 2.3.0 (2026-10-04)
 
 ### Added

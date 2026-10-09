@@ -94,7 +94,7 @@ node tests/test_guidance.cjs >/dev/null 2>&1 \
 ok "guidance: banked only when ahead, a way back when behind, a pick only with a choice, never local"
 node tests/test_esc_guard.cjs >/dev/null 2>&1 \
   || fail "Esc guard tests"
-ok "Esc guard: a window taking the keys re-primes the panel; only slurp-style layers hold it off"
+ok "Esc: the panel is Exclusive while open, nothing re-primes, and the close waits for the release"
 node tests/test_session_heat.cjs >/dev/null 2>&1 \
   || fail "5-hour window tests"
 ok "5-hour window: hot only when it bites, and the chip says 5-HOUR"

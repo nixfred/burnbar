@@ -5,7 +5,7 @@ import QtQuick.Shapes
 import QtQuick.Effects
 import Quickshell
 import Quickshell.Io
-import Quickshell.Hyprland
+import Quickshell.Wayland
 import qs.Commons
 import qs.Ui
 
@@ -1827,6 +1827,34 @@ Panel {
     bar: panel.widget.bar
     open: panel.opened
     focusTarget: keyCatcher
+    // Fred, 2026-10-08, fourth report of "Esc went to the terminal under the
+    // panel and stopped the agent" (2.1.1, 2.2.3 and 2.2.4 each patched one
+    // way the keys were lost). KeyboardPanel primes Exclusive for 75ms and
+    // settles on OnDemand, and Hyprland 0.56 treats an OnDemand layer as
+    // nobody's: refocusLastWindow() (InputManager.cpp) skips an OnDemand layer
+    // under the cursor and hands the keys to the last window whenever a layer
+    // or window unmaps, and only an Exclusive layer makes fullWindowFocus()
+    // refuse a window ("Refusing a keyboard focus to a window because of an
+    // exclusive ls", FocusState.cpp). So this panel stays Exclusive for as long
+    // as it is open, the one state the compositor guarantees, and the theft
+    // heuristics (a focus-loss timer, counting other clients' layers) went
+    // with the theft.
+    //
+    // Pointer: an Exclusive layer is "forced above all" in mouseMoveUnified,
+    // so every click from every output lands on this surface, translated.
+    // KeyboardPanel's dismiss area closes on any click outside the card, which
+    // is what a click outside should do; a click in another output's bar
+    // never forwards, because its translated point is outside this bar.
+    // slurp, the menu and the clipboard map Exclusive AFTER this panel, win
+    // the hit test while they are up, and Hyprland's refocus() brings the keys
+    // back here when they close. Nothing re-primes from this side: the 2.2.3
+    // bug was a re-prime jumping in front of slurp.
+    //
+    // Open stays true until the Esc that closes the panel is RELEASED (see
+    // keyCatcher): closing on the press dropped the layer to None while Esc
+    // was still down, so Hyprland focused the terminal with Esc in the
+    // keyboard-enter pressed set and then delivered the release to it.
+    WlrLayershell.keyboardFocus: panel.opened ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
     contentWidth: panel.mode === "setup"
       ? fittedContentWidth(Style.space(1040))
       : fittedContentWidth(panel.panelWidth)
@@ -1840,86 +1868,28 @@ Panel {
       id: keyCatcher
       anchors.fill: parent
       blocked: modelPicker.popupOpen
-      onCloseRequested: panel.widget.close()
-
-      // Fred, 2026-09-25: "sometimes that ESC goes to the terminal or herdr
-      // under it." KeyboardPanel grabs the keyboard Exclusive for 75ms and then
-      // settles on OnDemand, and Hyprland can hand an OnDemand layer's focus
-      // back to the window beneath it while the panel is still up. A click
-      // outside closes the panel before this runs, so while we are open any
-      // focus loss is theft: prime Exclusive again and take the keys back.
-      readonly property bool windowActive: Window.active
-      onWindowActiveChanged: if (!windowActive) refocusTimer.restart()
-      Timer {
-        id: refocusTimer
-        interval: 30
-        onTriggered: {
-          if (!panel.opened || keyCatcher.windowActive) return
-          if (keyCatcher.foreignLayerCount > 0) return
-          kpanel.focusPrimed = false
-          kpanel.beginFocusPrime()
-          keyCatcher.forceActiveFocus()
-        }
+      // PanelKeyCatcher asks to close on the Esc PRESS. The close waits for
+      // the release, so the terminal under the panel is never handed a
+      // keyboard with Esc still held (kpanel.keyboardFocus says why). A
+      // release that never arrives, because focus moved elsewhere, lets go
+      // after a beat; Esc auto-repeat restarts the wait rather than closing.
+      property bool escHeld: false
+      onCloseRequested: {
+        if (!panel.opened) return
+        escHeld = true
+        escRelease.restart()
       }
-
-      // Fred, 2026-10-02: "it can screenshot other plugins but not Burn Bar."
-      // Theft and a handover look the same from in here (Window.active drops),
-      // but slurp, hyprpicker, the Omarchy menu and clipboard take the keyboard
-      // on purpose with an Exclusive layer of their own. Hyprland routes the
-      // pointer to whichever Exclusive layer grabbed LAST, so re-priming 30ms
-      // after slurp mapped put this panel in front of it: slurp never saw a
-      // mouse button and the screenshot came out 19x17 px. Count the layers
-      // other clients open while we are up; while any is still open the
-      // keyboard is theirs, and when the last one closes we take it back.
-      // The shell's own passive layers (bar, OSD, toasts, our dismiss twins)
-      // never hold the keyboard, so they are not counted.
-      //
-      // Fred, 2026-10-04: the Esc "came to you" (the Orca terminal under the
-      // panel). Most layers never take the keyboard: an edge strip, a hot
-      // corner, a toast from another plugin. One that mapped while the panel
-      // was up kept the count above zero for as long as it stayed, and the next
-      // theft went unanswered. Hyprland refuses a window the keyboard while any
-      // Exclusive layer is up, and announces every window that does get it as
-      // activewindowv2 with its address, so that event means no layer holds
-      // the keys: forget the layers and take them back. slurp stays safe, since
-      // no window can be focused while it is up.
-      property var foreignLayers: ({})
-      readonly property int foreignLayerCount: Object.keys(foreignLayers).length
-      readonly property var passiveLayers: ["omarchy-keyboard-panel", "omarchy-keyboard-panel-dismiss",
-        "omarchy-bar", "omarchy-bar-drag-ghost", "omarchy-bar-move-ghost", "omarchy-background",
-        "omarchy-osd", "omarchy-notifications", "omarchy-hotcorner"]
-      // Pure, so tests/test_esc_guard.cjs can run it without a compositor.
-      // Returns the next layer set and whether to take the keyboard back.
-      function layerEvent(layers, name, data, opened, passive) {
-        var ns = String(data)
-        if (name === "activewindowv2") {
-          if (!opened || ns === "") return { layers: layers, reprime: false }
-          return { layers: {}, reprime: true }
-        }
-        if (name !== "openlayer" && name !== "closelayer") return { layers: layers, reprime: false }
-        if (passive.indexOf(ns) >= 0) return { layers: layers, reprime: false }
-        var seen = Object.assign({}, layers)
-        if (name === "openlayer") {
-          if (!opened) return { layers: layers, reprime: false }
-          seen[ns] = (seen[ns] || 0) + 1
-          return { layers: seen, reprime: false }
-        }
-        if (!(ns in seen)) return { layers: layers, reprime: false }
-        if (--seen[ns] <= 0) delete seen[ns]
-        return { layers: seen, reprime: opened && Object.keys(seen).length === 0 }
+      Keys.onReleased: function(event) {
+        if (event.key !== Qt.Key_Escape || !keyCatcher.escHeld) return
+        event.accepted = true
+        keyCatcher.releaseEsc()
       }
-      Connections {
-        target: Hyprland
-        function onRawEvent(event) {
-          var next = keyCatcher.layerEvent(keyCatcher.foreignLayers, event.name, event.data,
-            panel.opened, keyCatcher.passiveLayers)
-          if (next.layers !== keyCatcher.foreignLayers) keyCatcher.foreignLayers = next.layers
-          if (next.reprime && !keyCatcher.windowActive) refocusTimer.restart()
-        }
-      }
-      Connections {
-        target: panel
-        function onOpenedChanged() { keyCatcher.foreignLayers = ({}) }
+      Timer { id: escRelease; interval: 400; onTriggered: keyCatcher.releaseEsc() }
+      function releaseEsc() {
+        escRelease.stop()
+        if (!escHeld) return
+        escHeld = false
+        panel.widget.close()
       }
       onTabRequested: direction => panel.switchPanel(direction)
       onTextKey: function(text) {

@@ -73,6 +73,14 @@
         "defaultValue": false
       },
       {
+        "key": "look",
+        "type": "enum",
+        "label": "In the bar",
+        "options": ["strip", "flames"],
+        "defaultValue": "strip",
+        "description": "The heat strip, or one icon-sized flame per pace state: red going into debt, blue too much in the bank, green on pace, each as big as the burn right now. Hover either for the numbers."
+      },
+      {
         "key": "hero",
         "type": "enum",
         "label": "Card headline",

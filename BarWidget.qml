@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Shapes
 import Quickshell
 import Quickshell.Io
 import qs.Commons
@@ -61,6 +62,8 @@ BarWidget {
   // Quantised to 4 so a pixel of drift does not re-run the collector. Reads
   // lane width, never cellCount, so this cannot feed back into itself.
   readonly property int adaptiveCells: {
+    // The flames draw no cells, so the cockpit keeps the configured count.
+    if (root.flames) return baseBars
     var lane = graph ? graph.sideWidth : 0
     if (!isFinite(lane) || lane <= 0) return baseBars
     var want = Math.round(Math.round(lane / cellPitch) / 4) * 4
@@ -127,6 +130,10 @@ BarWidget {
   readonly property bool showLocal: setting("showLocal", true) !== false && (svc ? svc.hasComputeGpu : false) && focusOk("local")
   readonly property bool emberFlicker: setting("emberFlicker", true) !== false
   readonly property bool sparks: setting("sparks", true) !== false
+  // The strip, or the pace flames: one icon-sized flame per pace state, for a
+  // bar that wants an icon rather than an instrument. The strip stays the
+  // default; the cockpit behind either one is the same.
+  readonly property bool flames: String(setting("look", "strip")) === "flames"
 
   // ── elastic width ─────────────────────────────────────────────────────────
   // The bar's sections do not negotiate: each is a Row pinned to its own edge
@@ -153,7 +160,7 @@ BarWidget {
   // now. Use that going forward." A strip that changes width with the bar's
   // mood is hard to read and hard to find; it is a fixed instrument now.
   // Filling the room is still available, it is simply no longer the default.
-  readonly property bool stretch: setting("stretch", false) === true
+  readonly property bool stretch: setting("stretch", false) === true && !flames
   readonly property int maxWidth: Math.max(configuredWidth, boundedInt("maxWidth", 2400, 110, 4000))
   readonly property int stretchGap: boundedInt("stretchGap", 14, 0, 200)
 
@@ -185,7 +192,8 @@ BarWidget {
   // replaces it with a fair share of the hole to the centre section.
   readonly property real preferredWidth: Style.spaceReal(configuredWidth)
   property real stretchedWidth: preferredWidth
-  readonly property real stripWidth: stretch && !vertical
+  readonly property real stripWidth: flames ? flameSlotWidth
+    : stretch && !vertical
     ? Math.max(0, stretchedWidth)
     : preferredWidth
 
@@ -417,6 +425,9 @@ BarWidget {
   readonly property int zoneLocal: 3
   readonly property int zoneKimi: 4
   readonly property int zoneZcode: 5
+  // The flames are one target: the colours say how many states there are, and
+  // only the words can say which subscription is in which.
+  readonly property int zoneFlames: 6
 
   property int hoverZone: zoneNone
   // The bar only offers a tooltip to a target that reports itself hovered, and
@@ -479,6 +490,7 @@ BarWidget {
     if (!svc.ready) return "Burn Bar: collecting…"
     if (broken && zone !== zoneLocal)
       return "CLOUD FAULT: " + (svc.lastError || "collector failed")
+    if (zone === zoneFlames) return flamesTooltip()
     var span = windowLabel(svc.windowMinutes || 360)
     if (zone === zoneClaude)
       return "CLAUDE  ·  " + compact(svc.claudeTotal) + " tokens / last " + span + accountLine("claude")
@@ -533,7 +545,31 @@ BarWidget {
   readonly property string hoverText: hoverZone === zoneNone ? "" : zoneTooltip(hoverZone)
   onHoverTextChanged: if (hoverZone !== zoneNone && bar) bar.showTooltip(root, hoverText)
 
+  // One block per subscription: its state in words, then the two numbers the
+  // colour was decided from, so a red flame can always be checked by hand.
+  function flamesTooltip() {
+    var words = { fire: "on fire", steady: "steady burn", cold: "gone cold", unknown: "not measured" }
+    var rows = flameRows, now = Date.now(), out = []
+    for (var i = 0; i < rows.length; i++) {
+      var id = rows[i].id, live = liveFor(id, now)
+      var line = subName(id).toUpperCase() + "  ·  " + words[rows[i].state]
+      // A stale reading says how old it is, so a grey flame explains itself.
+      var seen = Number(subMeta(id).measuredAt) || 0
+      line += live
+        ? "\n" + Math.round(live.used * 100) + "% used  ·  " + Math.round(live.elapsed * 100) + "% of the "
+          + windowWord(primaryLimit(id)) + " gone  ·  on pace within " + Math.round(paceMargin(live.elapsed) * 100) + " pts"
+        : seen > 0 ? "\nlast limit reading " + Qt.formatTime(new Date(seen), "h:mm AP") + ", too old to judge by"
+        : "\nno limit reading to judge it by"
+      if (id === "claude" && claudeSessionHeat.hot)
+        line += "\n5-hour window " + Math.round(claudeSessionHeat.used * 100) + "%  ·  resets "
+          + Qt.formatDateTime(new Date(claudeSessionHeat.resetsMs), "h:mm AP")
+      out.push(line)
+    }
+    return out.length > 0 ? out.join("\n\n") : "Burn Bar: no subscriptions seen on this machine"
+  }
+
   function updateZone(x) {
+    if (root.flames) { hoverZone = zoneFlames; return }
     var zone = graph.zoneAt(x - graph.x)
     if (zone === hoverZone) return
     hoverZone = zone
@@ -1027,6 +1063,123 @@ BarWidget {
     return out
   }
 
+  // ── pace flames ───────────────────────────────────────────────────────────
+  // How far either side of an even spend still counts as on pace: 15% of the
+  // even spend still ahead. That is fifteen points of the plan just after a
+  // reset, closing to nothing at the rollover, because the nearer the deadline
+  // the less time is left to correct. Pure.
+  function paceMargin(elapsed) { return 0.15 * Math.max(0, 1 - Number(elapsed)) }
+
+  // One subscription as a flame, from paceLive. Above the margin is on fire,
+  // going into debt; below it is gone cold, more in the bank than the time left
+  // can use; inside it is a steady burn. A spent plan is on fire whatever the
+  // clock says, and no reading is unknown, never a guess. Pure.
+  function paceFlameState(live) {
+    if (!live) return "unknown"
+    if (live.spent) return "fire"
+    var d = live.used - live.elapsed, m = paceMargin(live.elapsed)
+    return d > m ? "fire" : d < -m ? "cold" : "steady"
+  }
+
+  // One flame per state, hot to cold, each as big as the hardest burn it holds.
+  // rows: [{ id, state, burn }]. pulseId names the subscription whose flame
+  // breathes (Claude while its 5-hour window bites), "" for none. Pure.
+  function flameGroups(rows, pulseId) {
+    var order = ["fire", "steady", "cold", "unknown"], by = {}, out = []
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i]
+      if (!by[r.state]) by[r.state] = { state: r.state, burn: 0, ids: [], pulse: false }
+      var g = by[r.state]
+      g.burn = Math.max(g.burn, Math.max(0, Math.min(1, Number(r.burn) || 0)))
+      g.ids.push(r.id)
+      if (pulseId !== "" && r.id === pulseId) g.pulse = true
+    }
+    for (var k = 0; k < order.length; k++) if (by[order[k]]) out.push(by[order[k]])
+    return out
+  }
+
+  // How hard a subscription is burning right now, 0..1. The newest heat cell
+  // alone empties at every bucket boundary, which shrank a busy flame to an
+  // ember on the half hour, so the cell before it fades out across the current
+  // bucket instead. intoBucket is how far through the current bucket we are,
+  // 0..1. Pure.
+  function burnNow(current, previous, intoBucket) {
+    var f = Math.max(0, Math.min(1, Number(intoBucket) || 0))
+    return Math.max(Number(current) || 0, (Number(previous) || 0) * (1 - f))
+  }
+
+  // The newest and the one-before heat cells for a lane, in that lane's own
+  // order: Codex runs newest-first beside a partner, everything else newest-last.
+  function laneBurn(id, nowMs) {
+    var n = root.cellCount
+    var b = root.buckets
+    var mins = svc ? Number(svc.bucketMinutes) || 0 : 0
+    var start = b && b.length ? Number(b[b.length - 1].t) || 0 : 0
+    var into = mins > 0 && start > 0 ? (Number(nowMs) - start) / (mins * 60000) : 1
+    if (id === "codex" && root.cloudAgents > 1) return burnNow(codexLevel(0), codexLevel(1), into)
+    var level = id === "claude" ? claudeLevel : id === "codex" ? codexLevel : id === "grok" ? grokLevel
+      : id === "kimi" ? kimiLevel : id === "zcode" ? zcodeLevel : null
+    return level ? burnNow(level(n - 1), level(n - 2), into) : 0
+  }
+
+  readonly property var flameRows: {
+    void (svc ? svc.limitsTick : 0)
+    void root.buckets
+    var now = Date.now(), rows = []
+    var subs = [["claude", showClaude], ["codex", showCodex], ["grok", showGrok], ["kimi", showKimi], ["zcode", showZcode]]
+    for (var i = 0; i < subs.length; i++)
+      if (subs[i][1]) rows.push({ id: subs[i][0], state: paceFlameState(liveFor(subs[i][0], now)), burn: laneBurn(subs[i][0], now) })
+    return rows
+  }
+
+  // What the bar draws: the groups, or one flame saying there is nothing to
+  // judge yet (waiting), the collector failed (fault), or no subscription has
+  // been seen at all (unknown).
+  readonly property var flameItems: {
+    var one = function (s) { return [{ state: s, burn: 0, ids: [], pulse: false }] }
+    if (!svc || !ready) return one("waiting")
+    if (broken) return one("fault")
+    var groups = flameGroups(flameRows, sessionClaimsPulse ? "claude" : "")
+    return groups.length > 0 ? groups : one("unknown")
+  }
+  // The flame is drawn in 14 units, the bar's icon size at the default scale.
+  readonly property real flameUnit: Style.font.icon / 14
+  readonly property real flameSlotWidth: (flameItems.length > 1 ? 10 + 9.5 * (flameItems.length - 1) : 14) * flameUnit
+    + Style.spaceReal(8)
+
+  // The theme's own red, blue and green, ranked by how far they stand out from
+  // the bar: on fire the most, because a plan in debt can stop the work; gone
+  // cold in the middle; a steady burn faded, because on pace needs nothing from
+  // you. Ranking by contrast rather than hue is what keeps them apart in a
+  // theme whose blue and green nearly match (Osaka Jade's are 15° apart).
+  function relLum(c) {
+    function lin(v) { return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4) }
+    return 0.2126 * lin(c.r) + 0.7152 * lin(c.g) + 0.0722 * lin(c.b)
+  }
+  function contrastOn(c, ground) {
+    var a = relLum(c), b = relLum(ground)
+    return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)
+  }
+  // Mixed toward the bar until it stands out no more than `target`, never past 70%.
+  function fadeTo(c, ground, target) {
+    for (var t = 0; t <= 0.7; t += 0.05) {
+      var out = mix(c, ground, t)
+      if (contrastOn(out, ground) <= target) return out
+    }
+    return mix(c, ground, 0.7)
+  }
+  readonly property color flameGround: themeColors && themePalette["background"] ? themePalette["background"] : "#16181d"
+  readonly property color flameInk: themeColors && themePalette["foreground"] ? themePalette["foreground"] : "#c8c8c8"
+  readonly property color flameRedBase: themeColors && themePalette["red"] ? themePalette["red"] : "#ff5a4a"
+  readonly property color flameBlueBase: themeColors && (themePalette["blue"] || themePalette["cyan"])
+    ? (themePalette["blue"] || themePalette["cyan"]) : "#4aa8ff"
+  readonly property color flameGreenBase: themeColors && themePalette["green"] ? themePalette["green"] : "#47d16c"
+  readonly property color flameFire: flameRedBase
+  readonly property color flameCold: fadeTo(flameBlueBase, flameGround, contrastOn(flameFire, flameGround) * 0.8)
+  readonly property color flameSteady: fadeTo(mix(flameGreenBase, flameGround, 0.4), flameGround,
+    contrastOn(flameCold, flameGround) * 0.7)
+  readonly property color flameUnknown: mix(flameInk, flameGround, 0.5)
+
   // Which subscription to reach for next. rows: [{ id, live, fresh, blocked }]
   // where live is paceLive(), fresh says the figure can be vouched for, and
   // blocked says a short session window is full. Pure, so it is tested.
@@ -1478,7 +1631,7 @@ BarWidget {
     // a slow drift and does not need frame-accurate updates on battery.
     readonly property bool resting: root.idle && !root.localActive
     interval: resting ? 200 : 50
-    running: root.emberFlicker && root.visible && !root.broken
+    running: root.emberFlicker && root.visible && !root.broken && !root.flames
     repeat: true
     onTriggered: {
       // Steps are scaled by interval so neither phase changes speed when the
@@ -1590,6 +1743,8 @@ BarWidget {
 
   Connections {
     target: root.svc
+    // The flames draw no shockwave, so new burn starts no animation behind them.
+    enabled: !root.flames
     function onClaudePulseChanged() { claudeImpact.restart() }
     function onCodexPulseChanged() { codexImpact.restart() }
     function onGrokPulseChanged() { grokImpact.restart() }
@@ -1603,6 +1758,71 @@ BarWidget {
   // instrument with different inputs, when the visual language changes it
   // changes in one place, which is how the three lanes stay readable as one
   // widget instead of drifting into three dialects.
+  // One pace flame, drawn in 14 units: an outline in its state's colour and,
+  // inside it, a filled copy grown from the base by how hard the hardest
+  // subscription in that state is burning. A dashed grey outline has nothing
+  // to judge yet; a grey one struck through is a collector that failed, which
+  // can no longer be red now that red means on fire.
+  component PaceFlame: Item {
+    id: pf
+    property string kind: "steady"
+    property real burn: 0
+    property bool pulsing: false
+    readonly property bool judged: kind === "fire" || kind === "steady" || kind === "cold"
+    readonly property color tint: kind === "fire" ? root.flameFire : kind === "cold" ? root.flameCold
+      : kind === "steady" ? root.flameSteady : root.flameUnknown
+    readonly property string outline: "M7 .8C7.5 3 11 4.9 11 8.7 11 11.3 9.2 13.2 7 13.2S3 11.3 3 8.7C3 7 3.8 5.8 4.8 5 4.8 6.3 5.3 7.2 6.2 7.6 5.9 5.4 6.1 3 7 .8Z"
+    width: 14
+    height: 14
+    // Fred's one-pulse rule: only the flame holding Claude breathes, and only
+    // while its 5-hour window is the thing that bites.
+    opacity: pulsing ? root.pulse(1800, 1.0, 0.4) : 1
+    readonly property PulseTicket ticket: PulseTicket { active: pf.pulsing && root.visible }
+
+    Shape {
+      anchors.fill: parent
+      visible: pf.judged && pf.burn > 0
+      preferredRendererType: Shape.CurveRenderer
+      transform: Scale {
+        origin.x: 7; origin.y: 13.2
+        xScale: 0.3 + 0.7 * pf.burn; yScale: 0.3 + 0.7 * pf.burn
+      }
+      ShapePath {
+        strokeWidth: -1
+        strokeColor: "transparent"
+        fillColor: pf.tint
+        PathSvg { path: pf.outline }
+      }
+    }
+    Shape {
+      anchors.fill: parent
+      preferredRendererType: Shape.CurveRenderer
+      ShapePath {
+        strokeWidth: 0.95
+        strokeColor: pf.tint
+        strokeStyle: pf.judged || pf.kind === "fault" ? ShapePath.SolidLine : ShapePath.DashLine
+        // Coarse on purpose: a finer dash closes up into a solid line at 14 px.
+        dashPattern: [2.4, 2.0]
+        joinStyle: ShapePath.RoundJoin
+        fillColor: "transparent"
+        PathSvg { path: pf.outline }
+      }
+    }
+    Shape {
+      anchors.fill: parent
+      visible: pf.kind === "fault"
+      preferredRendererType: Shape.CurveRenderer
+      ShapePath {
+        strokeWidth: 1.3
+        strokeColor: root.urgent
+        capStyle: ShapePath.RoundCap
+        fillColor: "transparent"
+        startX: 2.6; startY: 12.6
+        PathLine { x: 11.6; y: 2 }
+      }
+    }
+  }
+
   component ThermalLane: Item {
     id: lane
 
@@ -1822,6 +2042,7 @@ BarWidget {
     // It is the only element that spans all three lanes, and it is what makes a
     // busy machine visible from across the room without reading a single cell.
     Rectangle {
+      visible: !root.flames
       anchors.centerIn: parent
       width: graph.width + Style.spaceReal(10)
       height: Math.max(Style.spaceReal(6), graph.height * 0.5)
@@ -1847,7 +2068,8 @@ BarWidget {
       anchors.leftMargin: Style.spaceReal(2)
       anchors.verticalCenter: parent.verticalCenter
 
-      readonly property bool showing: root.stripChip.text !== ""
+      // The flames carry pace in colour alone; the words move to the tooltip.
+      readonly property bool showing: root.stripChip.text !== "" && !root.flames
       readonly property real pad: Style.spaceReal(7)
       readonly property real maxWidth: Math.max(Style.spaceReal(52), root.stripWidth * 0.42)
       readonly property string label: measureFull.implicitWidth + pad <= maxWidth ? root.stripChip.text
@@ -1914,8 +2136,45 @@ BarWidget {
       }
     }
 
+    // ── pace flames ─────────────────────────────────────────────────────────
+    // One flame per pace state, hot to cold. Several sit in one box, so they
+    // read as a single icon rather than a row of them.
+    Item {
+      id: flameView
+      visible: root.flames
+      anchors.centerIn: parent
+      readonly property int count: root.flameItems.length
+      readonly property bool boxed: count > 1
+      width: (boxed ? 10 + 9.5 * (count - 1) : 14) * root.flameUnit
+      height: (boxed ? 16 : 14) * root.flameUnit
+
+      Rectangle {
+        anchors.fill: parent
+        visible: flameView.boxed
+        color: "transparent"
+        radius: 3 * root.flameUnit
+        border.width: 1
+        border.color: Qt.rgba(root.flameInk.r, root.flameInk.g, root.flameInk.b, 0.45)
+      }
+      Repeater {
+        model: root.flameItems
+        delegate: PaceFlame {
+          required property var modelData
+          required property int index
+          kind: modelData.state
+          burn: modelData.burn
+          pulsing: modelData.pulse
+          scale: root.flameUnit
+          transformOrigin: Item.TopLeft
+          x: (flameView.boxed ? -2 + 9.5 * index : 0) * root.flameUnit
+          y: (flameView.boxed ? 1 : 0) * root.flameUnit
+        }
+      }
+    }
+
     Item {
       id: graph
+      visible: !root.flames
       // The strip starts after the warning badge, never under it.
       anchors.left: parent.left
       anchors.leftMargin: Style.space(3) + (overChip.visible ? overChip.width + Style.spaceReal(4) : 0)

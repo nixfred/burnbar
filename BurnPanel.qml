@@ -2113,6 +2113,13 @@ Panel {
               fontFamily: panel.fontFamily
             }
             SetupRow {
+              mark: panel.widget.flames ? "☑" : "☐"
+              on: panel.widget.flames
+              label: "Pace flames"
+              note: "one flame per pace state instead of the strip"
+              onActivated: panel.widget.persist({ look: panel.widget.flames ? "strip" : "flames" })
+            }
+            SetupRow {
               mark: panel.optOn("showGauges", true) ? "☑" : "☐"
               on: panel.optOn("showGauges", true)
               label: "Quota gauges"

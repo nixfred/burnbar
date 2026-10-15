@@ -334,6 +334,11 @@ live:
   Heavy`, shown as `Heavy plan`) is in the same snapshot; a change inside the
   week is noted on the card and the pace keeps the whole week but forgets the
   samples measured against the old plan.
+  The Grok Bot desktop app writes no such log: its weekly percent, reset and
+  plan (`Grok Bot Plan`) come from the `weekly-usage.cache` slice it keeps in
+  `~/.config/Grok Bot/sand-client-persistence` (`GROK_BOT_STORE` overrides),
+  and the newer of the two readings wins. Grok Bot keeps no token counts on
+  disk, so its lane has a weekly figure but no burn.
 - **Zcode**: `~/.zcode/cli/rollout/model-io-sess_*.jsonl`, one line per
   completed model request with its own usage object and the model id that
   served it. zcode's inputTokens is a bundle (input plus cache write plus

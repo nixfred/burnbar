@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- **Grok Bot's weekly usage shows.** The Grok Bot desktop app never writes
+  `~/.grok/logs/unified.jsonl`, so a machine using it had a Grok lane that
+  said `Grok billing data unavailable` while the app had the week's figure in
+  hand. Burn Bar now also reads the app's own cached reading (percent used,
+  reset time, plan name) from `~/.config/Grok Bot/sand-client-persistence`,
+  and chooses between it and the billing log the same way it already chose
+  between sources: an open window beats a reset one, then the newer reading.
+  Only that one slice is opened; transcripts and `sand-secrets.json` are not.
+  The app keeps no token counts, so the lane gets a weekly figure but no burn.
+
 ## 2.5.0 (2026-10-13)
 
 ### Added

@@ -185,6 +185,10 @@ python3 -m unittest discover -s tests -p 'test_grok_unknowns.py' -q >/dev/null \
   || fail "grok unknown-versus-zero tests"
 ok "a Grok figure that is absent reads as unknown, never as zero"
 
+python3 -m unittest discover -s tests -p 'test_grok_app.py' -q >/dev/null \
+  || fail "grok bot app usage tests"
+ok "the Grok Bot app's own weekly-usage cache feeds the Grok card"
+
 # Which login each subscription is reading. The tools keep that next to the
 # tokens that grant access, so the same tests pin the other half: the label
 # comes out and no secret does, from the output, the state dir or stderr.

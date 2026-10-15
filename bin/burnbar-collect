@@ -85,6 +85,11 @@ ZCODE_ROOT = HOME / ".zcode" / "cli" / "rollout"
 GROK_HOME = Path(os.environ.get("GROK_HOME") or HOME / ".grok")
 GROK_ROOT = GROK_HOME / "sessions"
 GROK_LOG = GROK_HOME / "logs" / "unified.jsonl"
+# The Grok Bot desktop app keeps its own store and never writes ~/.grok/logs:
+# each slice is one JSON file whose name is the base32 of its key, and the
+# weekly quota sits under the key ending ".weekly-usage.cache".
+GROK_APP_STORE = Path(os.environ.get("GROK_BOT_STORE")
+                      or HOME / ".config" / "Grok Bot" / "sand-client-persistence")
 
 CACHE_VERSION = 2
 # A token count larger than this is not a token count.
@@ -980,6 +985,72 @@ def grok_limits_from_log():
     return limits, measured, ""
 
 
+def grok_app_usage():
+    """The newest weekly-usage reading the Grok Bot app has cached, or None."""
+    best = None
+    try:
+        names = os.listdir(GROK_APP_STORE)
+    except OSError:
+        return None
+    for name in names:
+        if not name.endswith(".blob"):
+            continue
+        stem = name[:-5].upper()
+        try:
+            key = base64.b32decode(stem + "=" * (-len(stem) % 8)).decode("utf-8", "replace")
+        except (ValueError, TypeError):
+            continue
+        if not key.endswith(".weekly-usage.cache"):
+            continue
+        try:
+            raw = json.loads((GROK_APP_STORE / name).read_text())
+            reading = raw["value"]["reading"]
+            usage = reading["usage"]
+            read_at = int(reading.get("readAtMs") or 0)
+        except (OSError, *MALFORMED):
+            continue
+        if not isinstance(usage, dict):
+            continue
+        if best is None or read_at > best[0]:
+            best = (read_at, usage)
+    return best
+
+
+def grok_limits_from_app():
+    """Weekly %% from the Grok Bot app's cached usage reading."""
+    found = grok_app_usage()
+    if not found:
+        return [], 0, ""
+    read_at, usage = found
+    try:
+        # percentUsed is 0..100, like the log's creditUsagePercent.
+        raw_percent = usage.get("percentUsed")
+        percent = -1.0 if raw_percent is None or isinstance(raw_percent, bool) \
+            else norm_percent(float(raw_percent) / 100.0)
+    except (TypeError, ValueError, OverflowError):
+        percent = -1.0
+    reset_at = ""
+    try:
+        reset_ms = int(usage.get("nextResetMs") or 0)
+        if reset_ms > 0:
+            reset_at = datetime.datetime.fromtimestamp(
+                reset_ms / 1000, datetime.timezone.utc).isoformat()
+    except (TypeError, ValueError, OverflowError, OSError):
+        pass
+    return [{"label": "Weekly (7-day)", "percent": percent, "resetsAt": reset_at}], read_at, ""
+
+
+def grok_tier_from_app():
+    """The plan the Grok Bot app names ("Grok Bot Plan" -> "Grok Bot"), in the
+    same shape as grok_tier_from_log. The app keeps no history, so no change."""
+    found = grok_app_usage()
+    label = str((found[1].get("grokPlanLabel") if found else "") or "")[:40].strip()
+    if not label:
+        return {}
+    short = re.sub(r"\s+plan$", "", label, flags=re.I).strip() or label
+    return {"label": label, "short": short, "since": 0, "from": "", "fromShort": "", "direction": ""}
+
+
 def window_open(limits, now):
     """True when at least one window in the set has not already reset. A limit
     with no reset time cannot be judged either way, so it counts as open."""
@@ -1012,8 +1083,8 @@ def with_grok_limits(agent_payload):
     # `limits` array pinned Grok's weekly figure to that day forever, and an
     # expired window read as a confident 0%. ~/.grok/logs/unified.jsonl is the
     # live source; choose between them on evidence rather than on order.
-    chosen = pick_limits([limits_for("grok"), grok_limits_from_log()], now_ms)
-    tier = grok_tier_from_log()
+    chosen = pick_limits([limits_for("grok"), grok_limits_from_log(), grok_limits_from_app()], now_ms)
+    tier = grok_tier_from_log() or grok_tier_from_app()
     agent_payload["planTier"] = tier.get("short", "")
     agent_payload["planLabel"] = tier.get("label", "")
     agent_payload["planChange"] = None
@@ -1080,6 +1151,8 @@ def kimi_configured():
 
 kimi_present = kimi_seen or kimi.total > 0 or kimi_configured()
 if not grok_present and GROK_LOG.is_file():
+    grok_present = True
+if not grok_present and grok_app_usage():
     grok_present = True
 
 

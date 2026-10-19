@@ -7,6 +7,7 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 
 // Detail view for Burn Bar. The bar answers "is something burning right now";
@@ -81,7 +82,7 @@ Panel {
     panel.widget.persist(change)
   }
 
-  readonly property color foreground: widget.bar ? widget.bar.foreground : Color.foreground
+  readonly property color foreground: widget.bar ? widget.bar.foreground : Commons.Color.foreground
   readonly property color dim: Qt.darker(foreground, 1.5)
   readonly property color faint: Util.alpha(foreground, 0.10)
   readonly property string fontFamily: widget.bar ? widget.bar.fontFamily : Style.font.family
@@ -224,8 +225,8 @@ Panel {
     if (unknown || !limit || !limit.pace) return { word: "", color: panel.dim }
     var r = Number(limit.pace.ratio)
     if (!(r >= 0)) return { word: "", color: panel.dim }
-    if (r > 1.5) return { word: "WAY OVER", color: Color.urgent }
-    if (r > 1.05) return { word: "OVER", color: Qt.lighter(Color.urgent, 1.35) }
+    if (r > 1.5) return { word: "WAY OVER", color: Commons.Color.urgent }
+    if (r > 1.05) return { word: "OVER", color: Qt.lighter(Commons.Color.urgent, 1.35) }
     if (r > 0.9) return { word: "AT PACE", color: panel.foreground }
     return { word: "ON TRACK", color: panel.widget.gaugeColor(0.2) }
   }
@@ -421,7 +422,7 @@ Panel {
 
   readonly property bool localOnline: svc ? svc.localOnline : false
   readonly property bool localActive: svc ? svc.localActive : false
-  readonly property color localState: !localOnline ? Color.urgent
+  readonly property color localState: !localOnline ? Commons.Color.urgent
     : localActive ? widget.localHot : widget.okGreen
   readonly property color powerColor: widget.emberAmber
 
@@ -811,7 +812,7 @@ Panel {
   readonly property string guideHeadline: { void panel.tick; return widget.guideHeadline() }
   readonly property string guideReason: { void panel.tick; return widget.guideReason(Date.now()) }
   readonly property color guideTone: guidance.pick !== "" ? widget.subColor(guidance.pick)
-    : guidance.rest.length > 0 ? Qt.lighter(Color.urgent, 1.35) : widget.gaugeColor(0.2)
+    : guidance.rest.length > 0 ? Qt.lighter(Commons.Color.urgent, 1.35) : widget.gaugeColor(0.2)
   // Everyone who is not the pick, in one breath: who is next, and when each
   // sub that needs a rest is back.
   readonly property string guideAside: {
@@ -859,9 +860,9 @@ Panel {
     }
     var p = limit.pace
     if (!p) return dark
-    var amber = Qt.lighter(Color.urgent, 1.35)
+    var amber = Qt.lighter(Commons.Color.urgent, 1.35)
     if (mode === "stop") {
-      if (p.overDaily === true) return { strength: 1, color: Color.urgent, breathe: true }
+      if (p.overDaily === true) return { strength: 1, color: Commons.Color.urgent, breathe: true }
       var stopIn = Number(p.stopInMs)
       if (!(stopIn > 0) || stopIn > 3600000) return dark
       return { strength: 0.45 + 0.55 * (1 - stopIn / 3600000), color: amber, breathe: false }
@@ -871,7 +872,7 @@ Panel {
     if (stage <= 0) return dark
     // Breathing means "you can still do something about this". A window that
     // is already spent out burns steady: there is nothing left to slow down.
-    return { strength: [0, 0.5, 0.75, 1, 1][stage], color: stage >= 2 ? Color.urgent : amber, breathe: stage === 3 }
+    return { strength: [0, 0.5, 0.75, 1, 1][stage], color: stage >= 2 ? Commons.Color.urgent : amber, breathe: stage === 3 }
   }
 
   // Every per-agent figure the service carries is named <agent><Suffix>, so a
@@ -970,7 +971,7 @@ Panel {
         Layout.preferredWidth: Style.space(14)
       }
       Body { text: srow.label; color: srow.tone; Layout.fillWidth: true }
-      Caption { text: srow.note; color: srow.noteUrgent ? Color.urgent : panel.dim }
+      Caption { text: srow.note; color: srow.noteUrgent ? Commons.Color.urgent : panel.dim }
     }
     MouseArea {
       anchors.fill: parent
@@ -1185,7 +1186,7 @@ Panel {
       radius: width / 2
       x: bd.px(bd.dryX) - width / 2
       y: -height / 2 + 1
-      color: Color.urgent
+      color: Commons.Color.urgent
     }
     AxisEnds { endText: bd.endText }
   }
@@ -1397,7 +1398,7 @@ Panel {
     color: Util.alpha(card.accent, 0.055)
     border.width: 1
     border.color: card.lit ? Util.alpha(card.glow.color, 0.5 + 0.45 * Number(card.glow.strength))
-      : Util.alpha(card.sentence.urgent ? Color.urgent : card.accent, card.sentence.urgent ? 0.6 : 0.32)
+      : Util.alpha(card.sentence.urgent ? Commons.Color.urgent : card.accent, card.sentence.urgent ? 0.6 : 0.32)
     opacity: panel.reveal
     transform: Translate { y: (1 - panel.reveal) * 12 }
 
@@ -1470,7 +1471,7 @@ Panel {
         readonly property bool held: card.live !== null && panel.widget.subBurning(card.agent)
         readonly property bool rough: panel.widget.snapshotOutrun(card.agent)
         readonly property bool ahead: card.live !== null && !behind && card.live.banked >= 0.01
-        readonly property color tone: behind ? (card.live.spent || card.live.behind > 0.05 ? Color.urgent : Qt.lighter(Color.urgent, 1.35))
+        readonly property color tone: behind ? (card.live.spent || card.live.behind > 0.05 ? Commons.Color.urgent : Qt.lighter(Commons.Color.urgent, 1.35))
           : ahead ? panel.widget.gaugeColor(0.2) : panel.foreground
         color: Util.alpha(tone, 0.10)
         border.width: 1
@@ -1527,9 +1528,9 @@ Panel {
         readonly property var v: {
           var pv = panel.paceVerdict(row, row === null)
           if (row === null || pv.word === "OVER" || pv.word === "WAY OVER") return pv
-          return { word: heat.spent ? "SPENT" : "RUNNING DRY", color: Color.urgent }
+          return { word: heat.spent ? "SPENT" : "RUNNING DRY", color: Commons.Color.urgent }
         }
-        readonly property color tone: heat && (heat.spent || heat.used >= 0.9) ? Color.urgent : Qt.lighter(Color.urgent, 1.35)
+        readonly property color tone: heat && (heat.spent || heat.used >= 0.9) ? Commons.Color.urgent : Qt.lighter(Commons.Color.urgent, 1.35)
         visible: row !== null && !panel.showSessionWindows
         Layout.fillWidth: true
         implicitHeight: Style.space(panel.tight(32, 30, 28))
@@ -1681,7 +1682,7 @@ Panel {
         visible: card.sentence.text !== ""
         Layout.fillWidth: true
         text: card.sentence.text
-        color: card.sentence.urgent ? Color.urgent : panel.foreground
+        color: card.sentence.urgent ? Commons.Color.urgent : panel.foreground
         wrapMode: Text.WordWrap
         elide: Text.ElideNone
       }
@@ -1723,7 +1724,7 @@ Panel {
         visible: card.trust.text !== ""
         Layout.fillWidth: true
         text: card.trust.text
-        color: card.trust.urgent === true ? Color.urgent : panel.dim
+        color: card.trust.urgent === true ? Commons.Color.urgent : panel.dim
         wrapMode: Text.WordWrap
         elide: Text.ElideNone
       }
@@ -2419,7 +2420,7 @@ Panel {
                 Rectangle {
                   anchors.centerIn: parent
                   width: parent.width * 0.24; height: width; radius: width / 2
-                  color: panel.widget.bar ? panel.widget.bar.background : Color.background
+                  color: panel.widget.bar ? panel.widget.bar.background : Commons.Color.background
                 }
               }
               ColumnLayout {
@@ -2436,7 +2437,7 @@ Panel {
                 // than showing a board full of zeros.
                 Caption {
                   Layout.fillWidth: true
-                  color: panel.svc && panel.localOnline && panel.svc.localTelemetryError !== "" ? Color.urgent : panel.dim
+                  color: panel.svc && panel.localOnline && panel.svc.localTelemetryError !== "" ? Commons.Color.urgent : panel.dim
                   text: !panel.svc ? ""
                     : panel.localOnline && panel.svc.localTelemetryError !== ""
                       ? "no hardware telemetry  ·  " + panel.svc.localTelemetryError
@@ -2470,7 +2471,7 @@ Panel {
               Layout.fillWidth: true
               wrapMode: Text.WordWrap
               elide: Text.ElideNone
-              color: panel.localTokens ? panel.dim : Color.urgent
+              color: panel.localTokens ? panel.dim : Commons.Color.urgent
               text: {
                 void panel.tick
                 var s = panel.svc
@@ -2532,7 +2533,7 @@ Panel {
                     : panel.svc.localTempC >= 85 ? "throttle territory"
                     : panel.svc.localTempC >= 70 ? "warm" : "cool")
                 fraction: panel.svc && panel.svc.localTempC > 0 ? panel.svc.localTempC / 95 : -1
-                accent: panel.svc && panel.svc.localTempC >= 85 ? Color.urgent
+                accent: panel.svc && panel.svc.localTempC >= 85 ? Commons.Color.urgent
                   : panel.svc && panel.svc.localTempC >= 70 ? panel.widget.gaugeWarn : panel.widget.localHot
               }
               StatTile {
@@ -2698,7 +2699,7 @@ Panel {
               : "the dashed diagonal is an even spend: a line above it is over budget"
                 + "  ·  click a headline to flip budget and tokens"
                 + (panel.glowMode !== "off" ? "  ·  a card glows for: " + panel.glowLabel() + " (SETUP)" : "")
-            color: panel.svc && panel.svc.lastError !== "" ? Color.urgent : panel.dim
+            color: panel.svc && panel.svc.lastError !== "" ? Commons.Color.urgent : panel.dim
           }
           Caption {
             text: "collected " + panel.agoText(panel.svc ? panel.svc.generatedAt : 0)

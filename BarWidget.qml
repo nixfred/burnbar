@@ -3,6 +3,7 @@ import QtQuick.Shapes
 import Quickshell
 import Quickshell.Io
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 
 // Burn Bar: one live thermal instrument for every model this machine runs.
@@ -798,7 +799,7 @@ BarWidget {
   readonly property color okGreen: themeColors && themePalette["green"]
     ? themePalette["green"] : "#35f28b"
 
-  readonly property color urgent: Color.urgent
+  readonly property color urgent: Commons.Color.urgent
 
   function mix(a, b, t) {
     var u = Math.max(0, Math.min(1, t))
@@ -1972,8 +1973,8 @@ BarWidget {
     readonly property bool overPace: ratio > 1.0
     // Over budget is a colour, not a number to read: urgent past 1.25x, warmer
     // between 1.0 and 1.25x, and the ordinary quota colour when under pace.
-    readonly property color paceColor: ratio > 1.25 ? Color.urgent
-      : ratio > 1.0 ? Qt.lighter(Color.urgent, 1.35)
+    readonly property color paceColor: ratio > 1.25 ? Commons.Color.urgent
+      : ratio > 1.0 ? Qt.lighter(Commons.Color.urgent, 1.35)
       : root.gaugeColor(gauge.percent)
     // Negative means the service would not vouch for the number: the record
     // is stale or its window rolled over. An unknown gauge is an empty,
@@ -2373,7 +2374,7 @@ BarWidget {
           width: Style.spaceReal(1.5)
           height: parent.height + Style.spaceReal(3)
           radius: width / 2
-          color: root.bar ? root.bar.barForeground : Color.foreground
+          color: root.bar ? root.bar.barForeground : Commons.Color.foreground
           border.width: 0
           opacity: 0.38 + 0.55 * Math.max(root.claudeFlash, root.codexFlash)
         }
@@ -2624,7 +2625,7 @@ BarWidget {
           anchors.centerIn: parent
           width: 1
           height: parent.height + Style.spaceReal(4)
-          color: root.bar ? root.bar.barForeground : Color.foreground
+          color: root.bar ? root.bar.barForeground : Commons.Color.foreground
           border.width: 0
           opacity: 0.22
         }
@@ -2697,7 +2698,7 @@ BarWidget {
             width: parent.width * 0.28
             height: width
             radius: width / 2
-            color: root.bar ? root.bar.background : Color.background
+            color: root.bar ? root.bar.background : Commons.Color.background
             border.width: 0
             opacity: 0.9
           }

@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Added
+- **Pace flames: the bar as an icon instead of an instrument.** `look: "flames"`
+  (or **Pace flames** in SETUP) swaps the strip for one icon-sized flame per pace
+  state. Red is going into debt, green is on pace, blue is more in the bank than
+  the time left can use, against a margin of 15% of the even spend still ahead,
+  which closes to nothing at the rollover. Size is how hard the subscription is
+  burning right now. Subscriptions in the same state share a flame; different
+  states sit in one box, hot to cold. A plan with no trustworthy reading is a
+  dashed grey flame, never a guess, and a failed collector is a grey flame struck
+  through. Colours come from the theme, ranked by contrast so they stay apart
+  where a theme's blue and green nearly match. The strip stays the default.
+- While the flames show, the strip's ember clock and impact animations stop, and
+  the cockpit keeps the configured bucket count.
+
 ### Fixed
 - **Grok Bot's weekly usage shows.** The Grok Bot desktop app never writes
   `~/.grok/logs/unified.jsonl`, so a machine using it had a Grok lane that

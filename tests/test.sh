@@ -100,6 +100,9 @@ ok "Esc: the panel is Exclusive while open, nothing re-primes, and the close wai
 node tests/test_session_heat.cjs >/dev/null 2>&1 \
   || fail "5-hour window tests"
 ok "5-hour window: hot only when it bites, and the chip says 5-HOUR"
+node tests/test_pace_flames.cjs >/dev/null 2>&1 \
+  || fail "pace flame tests"
+ok "pace flames: a margin that closes at the reset, one flame per state, hot to cold"
   ok "theme palette parses, hues are in range, every lane has a fallback key"
 }
 

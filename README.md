@@ -181,6 +181,45 @@ Motion is data, never decoration:
 | Idle drift | a slow travelling swell, so calm never looks broken |
 | Solid red | fault. No idle animation, so an outage cannot hide |
 
+## Pace flames
+
+![Before and after: the strip, then the pace flames, in the same bar](docs/img/pace-flames.png)
+
+The strip is an instrument. In a crowded bar beside 14 px icons it can also be a
+lot to look at, so `look: "flames"` swaps it for one icon-sized flame per pace
+state. Tick **Pace flames** in SETUP, or set it in `shell.json`. The cockpit
+behind it is the same.
+
+Colour says where a subscription stands against an even spend of its week (or
+month, for Kimi):
+
+| Flame | Means |
+|---|---|
+| Red, on fire | Going into debt: more than the margin above an even spend, or spent |
+| Green, steady burn | On pace: within the margin either side |
+| Blue, gone cold | More in the bank than the time left can use: more than the margin below |
+| Dashed grey | Not measured: no limit reading, or one too old to trust. Never guessed |
+| Grey, struck through | The collector failed. Not red, because red now means on fire |
+
+The margin is 15% of the even spend still ahead: fifteen points of the plan
+just after a reset, closing to nothing at the rollover, because the nearer the
+deadline the less time is left to correct.
+
+Size is how hard a subscription is burning right now: its newest heat cell, with
+the one before it fading out across the current bucket so a busy flame does not
+drop to an ember on the half hour.
+
+Subscriptions in the same state share one flame, as big as the hardest burn
+among them. When the states differ the flames sit in one box, hot to cold. Hover
+for which subscription is which and the two numbers that decided each colour.
+
+The colours come from the Omarchy theme and are ranked by how far they stand out
+from the bar: red the most, because a plan in debt can stop the work; blue in
+the middle; green faded, because on pace needs nothing from you. Ranking by
+contrast keeps them apart in themes whose blue and green nearly match. Only the
+flame holding Claude pulses, and only while its 5-hour window is the thing that
+bites.
+
 ## The cockpit
 
 Left click the strip. A guidance banner, then one card per subscription, side
@@ -508,6 +547,7 @@ Set from the Omarchy plugin settings UI, or in `shell.json`.
 
 | Key | Default | Meaning |
 |---|---|---|
+| `look` | `strip` | What sits in the bar: `strip`, or `flames` for one flame per pace state (see Pace flames) |
 | `width` | 150 | Minimum width in px: the floor the strip grows from, or its fixed width with `stretch` off (raised automatically if too narrow for the configured cells) |
 | `stretch` | false | Fill the free room between the strip and the next section of the bar. Off means a fixed size |
 | `lanes` | `""` | Comma list of subscriptions to show (`claude,codex,grok,kimi`). Empty means every lane this machine knows |

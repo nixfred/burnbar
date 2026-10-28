@@ -17,6 +17,15 @@
   the cockpit keeps the configured bucket count.
 
 ### Fixed
+- **Claude limits read "unknown" on Omarchy 4.5.** Omarchy 4.5 keys its Claude
+  probe cache by the signed-in account (`claude-limits-<id>.json`) and puts the
+  time of the last successful probe in the usage record itself
+  (`limitsFetchedAt`). Burn Bar only read the old `claude-limits.json`, which 4.5
+  stops rewriting, so a figure probed seconds ago looked hours old and the panel
+  withheld it as unknown. The record's own `limitsFetchedAt` is now the
+  measurement time whenever it is a number, and a stale one stays stale: the
+  record's `updatedAt` is rewritten on every run and never stands in for it.
+  Older Omarchy has no such field and keeps reading `claude-limits.json`.
 - **Grok Bot's weekly usage shows.** The Grok Bot desktop app never writes
   `~/.grok/logs/unified.jsonl`, so a machine using it had a Grok lane that
   said `Grok billing data unavailable` while the app had the week's figure in

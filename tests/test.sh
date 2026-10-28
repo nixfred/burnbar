@@ -380,6 +380,38 @@ HOME="$fake_home" GROK_HOME="$fake_home/.grok" python3 bin/burnbar-collect --win
   || fail "retryAdvised on a silent fallback should surface as status"
 ok "measurement time comes from the probe cache, not the record stamp"
 
+# Omarchy 4.5 puts the probe time in the record itself (limitsFetchedAt) and
+# keys its cache by account, so the claude-limits.json left over from before
+# the upgrade (still eight hours old here, from the block above) is a frozen
+# relic. An upgraded machine read it, saw a 92 minute old measurement beside a
+# fresh probe, and the panel withheld a live Claude figure.
+fresh_ms=$(( ( $(date +%s) - 60 ) * 1000 ))
+printf '{"limits":[{"label":"Weekly (7-day)","percent":0.23,"resetsAt":"%s"}],"updatedAt":"%s","usageStatusText":"","limitsFetchedAt":%s,"limitsStale":false}\n' \
+  "$future_iso" "$now_plain" "$fresh_ms" > "$tmp/state/omarchy/agents/usage/claude.json"
+HOME="$fake_home" GROK_HOME="$fake_home/.grok" python3 bin/burnbar-collect --window 360 --buckets 12
+[ "$(jq -r '.claude.limitsMeasuredAt' "$out")" = "$fresh_ms" ] \
+  || fail "the record's limitsFetchedAt must beat a stale claude-limits.json leftover"
+[ "$(jq -r '.claude.limitsStatus' "$out")" = "" ] \
+  || fail "a live probe should carry no status text"
+ok "limitsFetchedAt on the record wins over the legacy cache file"
+
+# The same field must not be rescued by a fresh updatedAt when the probe is the
+# thing that is old: Omarchy re-stamps the record on every run, fetched or not.
+printf '{"limits":[{"label":"Weekly (7-day)","percent":0.23,"resetsAt":"%s"}],"updatedAt":"%s","usageStatusText":"","limitsFetchedAt":%s,"limitsStale":true}\n' \
+  "$future_iso" "$now_plain" "$old_ms" > "$tmp/state/omarchy/agents/usage/claude.json"
+HOME="$fake_home" GROK_HOME="$fake_home/.grok" python3 bin/burnbar-collect --window 360 --buckets 12
+[ "$(jq -r '.claude.limitsMeasuredAt' "$out")" = "$old_ms" ] \
+  || fail "a stale limitsFetchedAt must stay stale, not be replaced by updatedAt"
+# Never measured (0) and junk both read as unknown, not as the record stamp.
+for junk in 0 '"soon"' true -5; do
+  printf '{"limits":[{"label":"Weekly (7-day)","percent":0.23,"resetsAt":"%s"}],"updatedAt":"%s","limitsFetchedAt":%s}\n' \
+    "$future_iso" "$now_plain" "$junk" > "$tmp/state/omarchy/agents/usage/claude.json"
+  HOME="$fake_home" GROK_HOME="$fake_home/.grok" python3 bin/burnbar-collect --window 360 --buckets 12 || fail "limitsFetchedAt=$junk aborted the collector"
+  [ "$(jq -r '.claude.limitsMeasuredAt' "$out")" = "0" ] \
+    || fail "limitsFetchedAt=$junk should read as never measured, got $(jq -r '.claude.limitsMeasuredAt' "$out")"
+done
+ok "a record's own probe time is never papered over by updatedAt"
+
 # Every percentage is normalised on its own: null, junk, NaN, negative and
 # percent-scaled values become -1 (unknown) and the run still succeeds and
 # still writes valid JSON. Before, "bad" aborted both agents' collection and

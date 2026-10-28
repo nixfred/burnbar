@@ -1510,7 +1510,26 @@ def norm_percent(value):
     return n
 
 
-def probe_measured_at(agent):
+def probe_measured_at(agent, record=None):
+    """When a probe last succeeded, in ms; 0 when nothing says.
+
+    Omarchy 4.5 stamps that instant into the record itself (limitsFetchedAt)
+    and keys its probe cache by the signed-in account
+    (claude-limits-<uuid>.json), leaving the old claude-limits.json behind as a
+    frozen leftover. Reading only the leftover made a fresh Claude figure look
+    hours old on such a machine (92 min against a 15 min cutoff) and the panel
+    withheld it. A record that carries a number there is the authority, even at 0
+    (never measured); older Omarchy has no such field (or a null) and keeps the
+    cache file.
+    The per-account files are not globbed: another account's newer probe must
+    never vouch for this account's numbers."""
+    if isinstance(record, dict) and record.get("limitsFetchedAt") is not None:
+        raw = record.get("limitsFetchedAt")
+        if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+            return 0
+        if raw != raw or raw < 0 or raw > 4e12:
+            return 0
+        return int(raw)
     try:
         cache_doc = json.loads((PROBE_CACHE_DIR / f"{agent}-limits.json").read_text())
         return int(cache_doc.get("fetchedAtMs") or 0) if isinstance(cache_doc, dict) else 0
@@ -1870,7 +1889,11 @@ def limits_for(agent):
                "resetsAt": str(l.get("resetsAt") or "")[:40]}
               for l in out if isinstance(l, dict)] if isinstance(out, list) else []
     updated = parse_iso_ms(raw.get("updatedAt"))
-    measured = probe_measured_at(agent) or updated
+    # A record that gives its own probe time is never rescued by updatedAt:
+    # that stamp is rewritten on every collector run, fetched or not.
+    measured = probe_measured_at(agent, raw)
+    if raw.get("limitsFetchedAt") is None:
+        measured = measured or updated
     # A probe cache newer than the record cannot be what produced the record.
     if updated and measured > updated:
         measured = updated

@@ -2325,10 +2325,42 @@ def fetch_hex_inventory(url):
     return out
 
 
+def fetch_hex_usage(url):
+    """Every client's tokens, from an ollama-meter in front of the box (its /_meter/usage), or {}
+    when the box has none. Plain Ollama answers 404 and the card keeps showing this machine's own
+    ledger. Never raises; every field is bounded because the box is another machine's output."""
+    def num(v, cap=10**13):
+        return int(v) if isinstance(v, (int, float)) and not isinstance(v, bool) and 0 <= v < cap else 0
+
+    def table(raw):
+        out = {}
+        if isinstance(raw, dict):
+            for k, v in sorted(raw.items(), key=lambda kv: -num(kv[1].get("tokens") if isinstance(kv[1], dict) else 0))[:6]:
+                if isinstance(v, dict):
+                    out[str(k)[:64]] = {"tokens": num(v.get("tokens")), "requests": num(v.get("requests"))}
+        return out
+    try:
+        with urllib.request.urlopen("%s/_meter/usage?window=%d&buckets=%d" % (url.rstrip("/"), WINDOW_MIN, 24),
+                                    timeout=HEX_PROBE_TIMEOUT_S) as r:
+            doc = json.loads(r.read(256 * 1024).decode("utf-8", "replace"))
+        tot = doc["total"]
+        if doc.get("v") != 1 or not isinstance(tot, dict):
+            return {}
+        speed = doc.get("tokPerSec")
+        return {"requests": num(tot.get("requests")), "errors": num(tot.get("errors")),
+                "prompt": num(tot.get("prompt")), "output": num(tot.get("output")),
+                "tokPerSec": round(float(speed), 1) if isinstance(speed, (int, float)) and not isinstance(speed, bool)
+                and 0 <= speed < 1e6 else 0,
+                "inflight": num(doc.get("inflight"), 10**6), "lastAt": num(doc.get("lastAt"), 4 * 10**12),
+                "byModel": table(doc.get("byModel")), "byClient": table(doc.get("byClient"))}
+    except Exception:
+        return {}
+
+
 def hex_probe():
     global hex_probe_fresh, hex_new_sample
     if not HEX_URL:
-        return {"configured": False, "online": False, "error": "", "at": 0, "loaded": [], "inv": {}}
+        return {"configured": False, "online": False, "error": "", "at": 0, "loaded": [], "inv": {}, "usage": {}}
     prev = {}
     try:
         prev = json.loads(HEX_PROBE_FILE.read_text())
@@ -2343,11 +2375,12 @@ def hex_probe():
     inv = prev.get("inv") if isinstance(prev.get("inv"), dict) and prev.get("url") == HEX_URL else {}
     if online and not (isinstance(inv.get("at"), int) and 0 <= now_ms - inv["at"] < HEX_INV_TTL_MS):
         inv = fetch_hex_inventory(HEX_URL)
+    usage = fetch_hex_usage(HEX_URL) if online else {}
     if online:
         hex_new_sample = {"ts": now_ms, "gb": round(sum(m["vramGb"] for m in loaded), 1),
                           "names": sorted(m["name"] for m in loaded)}
     return {"configured": True, "url": HEX_URL, "online": online, "error": error, "at": now_ms,
-            "loaded": loaded, "inv": inv}
+            "loaded": loaded, "inv": inv, "usage": usage}
 
 
 def hex_fleet(state):
@@ -2437,7 +2470,8 @@ payload = {
     # above; `share` is just the part of everything burned that went to hex.
     "hex": dict(hex_box.payload(), byModel=hex_models, share=(hex_box.total / all_burn) if all_burn > 0 else 0,
                 tokPerSec=round(hex_speed[0] * 1000 / hex_speed[1], 1) if hex_speed[1] > 0 else 0,
-                box={k: v for k, v in hex_state.items() if k not in ("url", "inv")}, fleet=hex_fleet_stats),
+                box={k: v for k, v in hex_state.items() if k not in ("url", "inv", "usage")}, fleet=hex_fleet_stats,
+                all=hex_state.get("usage") or {}),
     # Which agents this machine actually uses. The strip hides the rest.
     "presence": {
         "claude": claude_present,

@@ -114,6 +114,10 @@ python3 -m unittest discover -s tests -p 'test_hex.py' -q \
   || fail "hex shared-box accounting"
 ok "hex: ledger lines count once, the probe is cached, an unreachable box degrades"
 
+python3 -m unittest discover -s tests -p 'test_meter_usage.py' -q 2>/dev/null \
+  || fail "ollama-meter usage endpoint"
+ok "ollama-meter: every client counted, endpoint never forwarded, records survive a restart"
+
 # --help is a question, not a run: it must describe the flags and exit without
 # creating a state directory or touching history.json.
 help_state="$(mktemp -d)"

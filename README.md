@@ -512,6 +512,15 @@ something was loaded, and a leaderboard of which models stayed warm longest, all
 from every client at once. Tokens and tok/s stay on the card in their own strip
 marked "this machine only", because Ollama keeps no per-request count and only the
 caller sees them. It does not depend on the local GPU lane.
+
+**All of hex's tokens, from every client**: put `nano/ollama-meter.py` in front of the
+box's Ollama (`hex/INSTALL-METER.md` is the hand-off brief; `hex/ollama-meter.service`
+the unit). Besides journalling a line per request it now keeps a bounded record of
+them (counts, model and client only, never prompt or reply text) and answers
+`GET /_meter/usage?window=MINUTES&buckets=N` itself. When `hexUrl` answers that,
+the card's token strip becomes "ALL CLIENTS": requests and failures, tok/s, input
+against output, a leaderboard by model and one by client, and how many requests are
+in flight. Plain Ollama answers 404 and the card keeps the this-machine strip.
 `model` is whatever the caller asked for (an alias such as `chat` stays `chat`).
 Set **Shared Ollama box URL** (`hexUrl`, e.g. `http://hex:11434`) and Burn Bar
 also asks the box's `/api/ps` which model is warm and how much memory it holds:

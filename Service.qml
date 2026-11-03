@@ -175,6 +175,8 @@ Item {
   property real hexDiskGb: 0
   property string hexVersion: ""
   property var hexWarmMs: ({})
+  // Every client's tokens, when an ollama-meter sits in front of the box: empty otherwise.
+  property var hexAll: ({})
   readonly property real hexSessions: 0
   property real hexTrailing5: 0
   property real hexTrailing60: 0
@@ -674,6 +676,7 @@ Item {
       root.hexDiskGb = num(hf.diskGb)
       root.hexVersion = String(hf.version || "")
       root.hexWarmMs = hf.warmMs && typeof hf.warmMs === "object" ? hf.warmMs : ({})
+      root.hexAll = hx.all && typeof hx.all === "object" ? hx.all : ({})
       root.hexTrailing5 = num(hx.trailing ? hx.trailing.m5 : 0)
       root.hexTrailing60 = num(hx.trailing ? hx.trailing.m60 : 0)
       root.hexShare = Math.max(0, Math.min(1, num(hx.share)))

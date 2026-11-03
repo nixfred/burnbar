@@ -14,7 +14,11 @@
   installed, memory held over time, swaps, busy share, and a leaderboard of the
   models that stayed warm longest, sampled from the box's own `/api/ps` and
   `/api/tags`. Token counts and tok/s (the ledger line may carry `ms`) stay
-  on the card, marked this machine only. On any machine, local GPU lane or not. With **Shared Ollama box URL** (`hexUrl`) set, it also reads `/api/ps`
+  on the card, marked this machine only, until a meter on the box reports every
+  client's: `nano/ollama-meter.py` now also keeps per-request records and serves
+  `/_meter/usage` (totals, per model, per client, in flight), `hex/` holds the
+  install brief and unit, and the card then shows requests, failures, tok/s and
+  model and client leaderboards for all of hex. On any machine, local GPU lane or not. With **Shared Ollama box URL** (`hexUrl`) set, it also reads `/api/ps`
   once per 30 s for the warm model, its memory and context, and says
   unreachable in red when the box does not answer. The strip tooltip gains one
   hex line. The URL is never written to `history.json`, and with no URL there is

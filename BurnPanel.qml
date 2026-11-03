@@ -910,6 +910,14 @@ Panel {
   // of the local GPU lane: a machine that hides that lane still sees hex.
   readonly property bool hexShown: !!svc && (svc.hexTurns > 0 || svc.hexBoxConfigured)
   // hex's card is about the whole box, so its headline is what the box holds.
+  // True when a meter in front of hex reports every client's tokens; otherwise the card is
+  // honest that its token numbers are this machine's own.
+  readonly property bool hexAllOn: !!svc && !!svc.hexAll && svc.hexAll.requests !== undefined
+  function hexAllTable(key) {
+    var out = {}, t = svc && svc.hexAll ? svc.hexAll[key] : null
+    for (var k in t) out[k] = Number(t[k].tokens || 0)
+    return out
+  }
   readonly property int hexWarmCount: svc && svc.hexBoxLoaded ? svc.hexBoxLoaded.length : 0
   function hexWarmSum() {
     var t = 0, m = svc ? svc.hexWarmMs : ({})
@@ -1394,15 +1402,20 @@ Panel {
     // quota is unknown falls back to tokens rather than printing a dash at
     // display size.
     readonly property bool budgetHero: panel.heroMode === "budget" && primary !== null && !primaryUnknown
-    readonly property real total: Number(panel.sv(agent, "Total", 0))
+    readonly property bool hexAll: agent === "hex" && panel.hexAllOn
+    readonly property bool warmMode: agent === "hex" && !panel.hexAllOn
+    readonly property real total: hexAll ? Number(panel.svc.hexAll.prompt || 0) + Number(panel.svc.hexAll.output || 0)
+      : Number(panel.sv(agent, "Total", 0))
     // Nothing burned in the window: the budget half of the card still matters,
     // the burn half is rows of zeros and an empty graph. It collapses to a line.
     readonly property bool active: total > 0
-    readonly property var split: panel.sv(agent, "Split", ({}))
+    readonly property var split: hexAll ? ({ input: panel.svc.hexAll.prompt, cacheWrite: 0, output: panel.svc.hexAll.output, cacheRead: 0 })
+      : panel.sv(agent, "Split", ({}))
     readonly property real splitSum: Math.max(1, panel.splitTotal(split))
     // hex ranks models by how long each stayed warm on the box (any client); the others by tokens.
-    readonly property var models: panel.sortedModels(agent === "hex" ? panel.sv("hex", "WarmMs", ({})) : panel.sv(agent, "ByModel", ({})))
-    readonly property real modelTotal: agent === "hex" ? panel.hexWarmSum() : total
+    readonly property var models: panel.sortedModels(warmMode ? panel.sv("hex", "WarmMs", ({}))
+      : hexAll ? panel.hexAllTable("byModel") : panel.sv(agent, "ByModel", ({})))
+    readonly property real modelTotal: warmMode ? panel.hexWarmSum() : total
     readonly property string tier: (agent === "kimi" || agent === "grok") ? String(panel.sv(agent, "PlanTier", "")) : ""
     // Who this subscription is signed in to. Fred, 2026-10-13: people run more than
     // one subscription and want to see which login each card is reading.
@@ -1819,10 +1832,13 @@ Panel {
       RowLayout {
         visible: card.active
         Layout.fillWidth: true
-        Caption { Layout.fillWidth: true; font.bold: true; text: card.agent === "hex" ? "TOKENS FROM THIS MACHINE ONLY" : "TOKEN MIX" }
+        Caption { Layout.fillWidth: true; font.bold: true; text: card.agent === "hex" ? (card.hexAll ? "TOKENS  ·  ALL CLIENTS" : "TOKENS FROM THIS MACHINE ONLY") : "TOKEN MIX" }
         Caption {
           text: card.agent === "hex"
-            ? panel.sv("hex", "Turns", 0) + " requests" + (panel.svc.hexTokPerSec > 0 ? "  ·  " + panel.svc.hexTokPerSec.toFixed(0) + " tok/s" : "")
+            ? (card.hexAll ? panel.svc.hexAll.requests : panel.sv("hex", "Turns", 0)) + " requests"
+              + (card.hexAll && panel.svc.hexAll.errors > 0 ? " (" + panel.svc.hexAll.errors + " failed)" : "")
+              + ((card.hexAll ? panel.svc.hexAll.tokPerSec : panel.svc.hexTokPerSec) > 0
+                  ? "  ·  " + Number(card.hexAll ? panel.svc.hexAll.tokPerSec : panel.svc.hexTokPerSec).toFixed(0) + " tok/s" : "")
             : "cache read " + panel.widget.compact(card.split.cacheRead || 0) + "  ·  "
             + Math.round(panel.cacheShare(card.split) * 100) + "% of input"
           color: card.accent
@@ -1860,7 +1876,7 @@ Panel {
         visible: card.active
         Layout.fillWidth: true
         text: "in " + panel.widget.compact(card.split.input || 0)
-          + "  ·  cache-write " + panel.widget.compact(card.split.cacheWrite || 0)
+          + (card.agent === "hex" ? "" : "  ·  cache-write " + panel.widget.compact(card.split.cacheWrite || 0))
           + "  ·  out " + panel.widget.compact(card.split.output || 0)
       }
 
@@ -1868,7 +1884,7 @@ Panel {
       Caption {
         visible: (card.active || card.agent === "hex") && card.models.length > 0
         font.bold: true
-        text: card.agent === "hex" ? "MOST TIME WARM  ·  ALL CLIENTS" : "BY MODEL"
+        text: card.warmMode ? "MOST TIME WARM  ·  ALL CLIENTS" : card.hexAll ? "BY MODEL  ·  ALL CLIENTS" : "BY MODEL"
       }
       Repeater {
         model: card.active || card.agent === "hex" ? card.models.slice(0, 4) : []
@@ -1881,12 +1897,28 @@ Panel {
           Gauge { fraction: share; accent: card.accent }
           Caption { text: Math.round(share * 100) + "%"; Layout.preferredWidth: Style.space(28); horizontalAlignment: Text.AlignRight }
           Body {
-            text: card.agent === "hex" ? panel.warmSpan(modelData.tokens) : panel.widget.compact(modelData.tokens)
+            text: card.warmMode ? panel.warmSpan(modelData.tokens) : panel.widget.compact(modelData.tokens)
             color: card.accent
             font.bold: true
-            Layout.preferredWidth: Style.space(card.agent === "hex" ? 52 : 40)
+            Layout.preferredWidth: Style.space(card.warmMode ? 52 : 40)
             horizontalAlignment: Text.AlignRight
           }
+        }
+      }
+
+      Caption { visible: card.hexAll; font.bold: true; text: "BY CLIENT  ·  WHO IS USING HEX" }
+      Repeater {
+        model: card.hexAll ? panel.sortedModels(panel.hexAllTable("byClient")).slice(0, 4) : []
+        delegate: RowLayout {
+          required property var modelData
+          readonly property real share: card.total > 0 ? modelData.tokens / card.total : 0
+          Layout.fillWidth: true
+          spacing: Style.space(6)
+          Body { text: panel.plainText(modelData.id, 18); Layout.preferredWidth: Style.space(92); elide: Text.ElideRight }
+          Gauge { fraction: share; accent: card.accent }
+          Caption { text: Math.round(share * 100) + "%"; Layout.preferredWidth: Style.space(28); horizontalAlignment: Text.AlignRight }
+          Body { text: panel.widget.compact(modelData.tokens); color: card.accent; font.bold: true
+            Layout.preferredWidth: Style.space(40); horizontalAlignment: Text.AlignRight }
         }
       }
 
@@ -1899,8 +1931,10 @@ Panel {
           void panel.tick
           if (card.agent === "hex")
             return panel.hexState() !== "" ? panel.hexState()
-              : (panel.svc.hexLastSwapAt > 0 ? "last model swap " + panel.agoText(panel.svc.hexLastSwapAt) : "no model swap in this window")
-                + "  ·  sampled by Burn Bar, covers every client"
+              : (card.hexAll ? (panel.svc.hexAll.inflight > 0 ? panel.svc.hexAll.inflight + " in flight  ·  " : "idle  ·  ")
+                    + "last request " + panel.agoText(panel.svc.hexAll.lastAt) + "  ·  " : "")
+                + (panel.svc.hexLastSwapAt > 0 ? "last model swap " + panel.agoText(panel.svc.hexLastSwapAt) : "no model swap in this window")
+                + (card.hexAll ? "" : "  ·  sampled by Burn Bar, covers every client")
           return panel.sv(card.agent, "Turns", 0) + " turns  ·  " + panel.sv(card.agent, "Sessions", 0)
             + " sessions  ·  active " + panel.agoText(panel.sv(card.agent, "LastAt", 0))
         }

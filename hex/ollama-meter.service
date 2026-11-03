@@ -1,0 +1,26 @@
+[Unit]
+Description=ollama-meter: token-counting reverse proxy in front of Ollama (shared box)
+Documentation=https://github.com/nixfred/burnbar
+After=network-online.target ollama.service
+Wants=ollama.service
+
+[Service]
+# Listens where Ollama listened before (clients and `tailscale serve` keep using that
+# address); Ollama moves to loopback :11435. See hex/INSTALL-METER.md.
+ExecStart=/usr/bin/python3 /usr/local/lib/burnbar/ollama-meter.py
+Environment=METER_LISTEN=0.0.0.0:11434
+Environment=METER_UPSTREAM=127.0.0.1:11435
+Environment=METER_USAGE_FILE=/var/lib/ollama-meter/usage.jsonl
+Environment=METER_KEEP_HOURS=48
+Environment=PYTHONUNBUFFERED=1
+StateDirectory=ollama-meter
+Restart=always
+RestartSec=1
+DynamicUser=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

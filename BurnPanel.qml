@@ -909,17 +909,24 @@ Panel {
   // has logged a request or Burn Bar was told where it lives, and independent
   // of the local GPU lane: a machine that hides that lane still sees hex.
   readonly property bool hexShown: !!svc && (svc.hexTurns > 0 || svc.hexBoxConfigured)
-  // What the box has resident right now, one short line for the hex card footer.
-  function hexWarm() {
+  // hex's card is about the whole box, so its headline is what the box holds.
+  readonly property int hexWarmCount: svc && svc.hexBoxLoaded ? svc.hexBoxLoaded.length : 0
+  function hexWarmSum() {
+    var t = 0, m = svc ? svc.hexWarmMs : ({})
+    for (var k in m) t += Number(m[k] || 0)
+    return Math.max(1, t)
+  }
+  // "3h 12m", "45m", "20s": how long a model stayed warm.
+  function warmSpan(ms) {
+    var m = Math.round(Number(ms || 0) / 60000)
+    if (m >= 60) return Math.floor(m / 60) + "h " + (m % 60) + "m"
+    return m >= 1 ? m + "m" : Math.round(Number(ms || 0) / 1000) + "s"
+  }
+  function hexState() {
     var s = svc
-    if (!s || !s.hexBoxConfigured) return ""
+    if (!s || !s.hexBoxConfigured) return "set Shared Ollama box URL in SETUP to see the box"
     if (!s.hexBoxOnline) return "box unreachable" + (s.hexBoxError !== "" ? ": " + plainText(s.hexBoxError, 60) : "")
-    var warm = s.hexBoxLoaded || []
-    if (!warm.length) return "nothing warm"
-    var names = []
-    for (var i = 0; i < warm.length && i < 2; i++)
-      names.push(plainText(warm[i].name, 28) + (warm[i].vramGb > 0 ? " " + Number(warm[i].vramGb).toFixed(0) + " GB" : ""))
-    return "warm: " + names.join(" + ") + (warm.length > 2 ? " +" + (warm.length - 2) : "")
+    return ""
   }
   readonly property int cardCount: (showClaude ? 1 : 0) + (showCodex ? 1 : 0) + (showGrok ? 1 : 0)
     + (showKimi ? 1 : 0) + (showZcode ? 1 : 0) + (showLocal ? 1 : 0) + (hexShown ? 1 : 0)
@@ -1228,11 +1235,15 @@ Panel {
   component BurnBars: Item {
     id: bb
     property string agent: "claude"
+    // The bucket field to draw, when it is not the agent's own burn (hex draws
+    // the memory the box held), and the peak that scales it.
+    property string series: agent
+    property real seriesPeak: Number(panel.sv(bb.agent, "Peak", 1))
     Layout.fillWidth: true
     implicitHeight: Style.space(panel.tight(52, 40, 30))
     readonly property int n: panel.buckets.length
     readonly property real slot: n > 0 ? width / n : width
-    readonly property real peak: Math.max(1, Number(panel.sv(bb.agent, "Peak", 1)))
+    readonly property real peak: Math.max(1, bb.seriesPeak)
 
     Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: panel.faint }
     Repeater {
@@ -1240,7 +1251,7 @@ Panel {
       delegate: Item {
         id: bar
         required property int index
-        readonly property real v: Number((panel.buckets[index] || ({}))[bb.agent] || 0)
+        readonly property real v: Number((panel.buckets[index] || ({}))[bb.series] || 0)
         readonly property real level: Math.min(1, Math.pow(v / bb.peak, 0.6))
         readonly property bool live: index === bb.n - 1
         x: index * bb.slot
@@ -1389,7 +1400,9 @@ Panel {
     readonly property bool active: total > 0
     readonly property var split: panel.sv(agent, "Split", ({}))
     readonly property real splitSum: Math.max(1, panel.splitTotal(split))
-    readonly property var models: panel.sortedModels(panel.sv(agent, "ByModel", ({})))
+    // hex ranks models by how long each stayed warm on the box (any client); the others by tokens.
+    readonly property var models: panel.sortedModels(agent === "hex" ? panel.sv("hex", "WarmMs", ({})) : panel.sv(agent, "ByModel", ({})))
+    readonly property real modelTotal: agent === "hex" ? panel.hexWarmSum() : total
     readonly property string tier: (agent === "kimi" || agent === "grok") ? String(panel.sv(agent, "PlanTier", "")) : ""
     // Who this subscription is signed in to. Fred, 2026-10-13: people run more than
     // one subscription and want to see which login each card is reading.
@@ -1612,8 +1625,9 @@ Panel {
           anchors.right: parent.right
           spacing: Style.space(10)
           Counter {
-            target: card.budgetHero ? Number(card.primary.percent) * 100 : card.total
-            format: card.budgetHero ? function(v) { return Math.round(v) + "%" } : panel.widget.compact
+            target: card.agent === "hex" ? panel.svc.hexResidentGb : card.budgetHero ? Number(card.primary.percent) * 100 : card.total
+            format: card.agent === "hex" ? function(v) { return Math.round(v) + " GB" }
+              : card.budgetHero ? function(v) { return Math.round(v) + "%" } : panel.widget.compact
             color: card.budgetHero ? (card.verdict.word !== "" ? card.verdict.color : card.accent) : card.accent
             font.pixelSize: Style.font.displayLarge
             font.bold: true
@@ -1626,7 +1640,8 @@ Panel {
               Layout.fillWidth: true
               font.bold: true
               color: panel.foreground
-              text: card.budgetHero
+              text: card.agent === "hex" ? "resident now  ·  " + panel.hexWarmCount + " warm of " + panel.svc.hexInstalled + " installed"
+                : card.budgetHero
                 ? "of " + panel.windowShort(card.primary.label) + " budget spent"
                 : "tokens  ·  last " + panel.widget.windowLabel(panel.windowMinutes)
             }
@@ -1656,8 +1671,8 @@ Panel {
                   return Math.round(Number(card.primary.percent) * 100) + "% of " + panel.windowShort(card.primary.label)
                     + "  ·  resets in " + panel.untilText(card.primary.resetsAt)
                 if (card.agent === "hex")
-                  return panel.sv("hex", "Turns", 0) + " requests  ·  " + Math.round(panel.svc.hexShare * 100) + "% of all burn"
-                    + (panel.svc.hexTokPerSec > 0 ? "  ·  " + panel.svc.hexTokPerSec.toFixed(0) + " tok/s" : "")
+                  return panel.hexState() !== "" ? panel.hexState()
+                    : panel.svc.hexDiskGb + " GB installed  ·  ollama " + panel.svc.hexVersion + "  ·  all clients"
                 return panel.sv(card.agent, "Turns", 0) + " turns  ·  " + panel.sv(card.agent, "Sessions", 0) + " sessions"
               }
             }
@@ -1766,30 +1781,49 @@ Panel {
 
       // ── burn: how hard, and when ───────────────────────────────────────
       RowLayout {
-        visible: card.active
+        visible: card.active && card.agent !== "hex"
         Layout.fillWidth: true
         Caption { Layout.fillWidth: true; font.bold: true; text: "BURN  ·  TOKENS / MIN" }
         Caption {
           text: "peak " + panel.widget.compact(panel.sv(card.agent, "Peak", 0)) + " at " + panel.clockText(panel.sv(card.agent, "PeakAt", 0))
         }
       }
+      // ── hex: what the box held, whoever asked ──────────────────────────
+      Caption {
+        visible: card.agent === "hex"
+        Layout.fillWidth: true
+        font.bold: true
+        text: "BOX MEMORY  ·  GB RESIDENT OVER TIME  ·  ALL CLIENTS"
+      }
       RowLayout {
-        visible: card.active
+        visible: card.agent === "hex"
+        Layout.fillWidth: true
+        spacing: Style.space(8)
+        MiniStat { label: "PEAK GB"; value: panel.svc.hexPeakGb; tone: card.accent }
+        MiniStat { label: "SWAPS"; value: panel.svc.hexSwaps }
+        MiniStat { label: "BUSY %"; value: panel.svc.hexBusyPct }
+      }
+      BurnBars { agent: "hex"; series: "hexGb"; seriesPeak: panel.svc.hexPeakGb; visible: card.agent === "hex" }
+
+      RowLayout {
+        visible: card.active && card.agent !== "hex"
         Layout.fillWidth: true
         spacing: Style.space(8)
         MiniStat { label: "/MIN NOW"; value: panel.rateNow(card.agent); tone: card.accent }
         MiniStat { label: "/MIN 1H"; value: panel.rateHour(card.agent) }
         MiniStat { label: "/MIN " + panel.widget.windowLabel(panel.windowMinutes).toUpperCase(); value: panel.rateWindow(card.agent) }
       }
-      BurnBars { agent: card.agent; visible: card.active }
+      BurnBars { agent: card.agent; visible: card.active && card.agent !== "hex" }
 
       // ── what burned, and how much came out of the cache ────────────────
       RowLayout {
         visible: card.active
         Layout.fillWidth: true
-        Caption { Layout.fillWidth: true; font.bold: true; text: "TOKEN MIX" }
+        Caption { Layout.fillWidth: true; font.bold: true; text: card.agent === "hex" ? "TOKENS FROM THIS MACHINE ONLY" : "TOKEN MIX" }
         Caption {
-          text: "cache read " + panel.widget.compact(card.split.cacheRead || 0) + "  ·  "
+          text: card.agent === "hex"
+            ? panel.sv("hex", "Turns", 0) + " requests" + (panel.svc.hexTokPerSec > 0 ? "  ·  " + panel.svc.hexTokPerSec.toFixed(0) + " tok/s" : "")
+            : "cache read " + panel.widget.compact(card.split.cacheRead || 0) + "  ·  "
             + Math.round(panel.cacheShare(card.split) * 100) + "% of input"
           color: card.accent
           font.bold: true
@@ -1831,22 +1865,26 @@ Panel {
       }
 
       // ── which models did the burning ───────────────────────────────────
-      Caption { visible: card.active && card.models.length > 0; font.bold: true; text: "BY MODEL" }
+      Caption {
+        visible: (card.active || card.agent === "hex") && card.models.length > 0
+        font.bold: true
+        text: card.agent === "hex" ? "MOST TIME WARM  ·  ALL CLIENTS" : "BY MODEL"
+      }
       Repeater {
-        model: card.active ? card.models.slice(0, 4) : []
+        model: card.active || card.agent === "hex" ? card.models.slice(0, 4) : []
         delegate: RowLayout {
           required property var modelData
-          readonly property real share: card.total > 0 ? modelData.tokens / card.total : 0
+          readonly property real share: card.modelTotal > 0 ? modelData.tokens / card.modelTotal : 0
           Layout.fillWidth: true
           spacing: Style.space(6)
           Body { text: panel.prettyModel(modelData.id); Layout.preferredWidth: Style.space(92) }
           Gauge { fraction: share; accent: card.accent }
           Caption { text: Math.round(share * 100) + "%"; Layout.preferredWidth: Style.space(28); horizontalAlignment: Text.AlignRight }
           Body {
-            text: panel.widget.compact(modelData.tokens)
+            text: card.agent === "hex" ? panel.warmSpan(modelData.tokens) : panel.widget.compact(modelData.tokens)
             color: card.accent
             font.bold: true
-            Layout.preferredWidth: Style.space(40)
+            Layout.preferredWidth: Style.space(card.agent === "hex" ? 52 : 40)
             horizontalAlignment: Text.AlignRight
           }
         }
@@ -1855,13 +1893,14 @@ Panel {
       Item { Layout.fillHeight: true }
 
       Caption {
-        visible: card.active
+        visible: card.active || card.agent === "hex"
         Layout.fillWidth: true
         text: {
           void panel.tick
           if (card.agent === "hex")
-            return panel.sv("hex", "Turns", 0) + " requests  ·  active " + panel.agoText(panel.sv("hex", "LastAt", 0))
-              + (panel.hexWarm() !== "" ? "  ·  " + panel.hexWarm() : "")
+            return panel.hexState() !== "" ? panel.hexState()
+              : (panel.svc.hexLastSwapAt > 0 ? "last model swap " + panel.agoText(panel.svc.hexLastSwapAt) : "no model swap in this window")
+                + "  ·  sampled by Burn Bar, covers every client"
           return panel.sv(card.agent, "Turns", 0) + " turns  ·  " + panel.sv(card.agent, "Sessions", 0)
             + " sessions  ·  active " + panel.agoText(panel.sv(card.agent, "LastAt", 0))
         }

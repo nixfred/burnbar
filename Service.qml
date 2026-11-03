@@ -162,6 +162,19 @@ Item {
   property real hexPeak: 0
   property real hexPeakAt: 0
   property real hexTokPerSec: 0
+  // What the box itself shows any caller, sampled over the window: memory
+  // resident now and at most, how often the resident model changed, how long
+  // each model stayed warm, and what is installed. Covers every client of hex,
+  // unlike the token counts above, which are only this machine's calls.
+  property real hexResidentGb: 0
+  property real hexPeakGb: 0
+  property real hexBusyPct: 0
+  property real hexSwaps: 0
+  property real hexLastSwapAt: 0
+  property real hexInstalled: 0
+  property real hexDiskGb: 0
+  property string hexVersion: ""
+  property var hexWarmMs: ({})
   readonly property real hexSessions: 0
   property real hexTrailing5: 0
   property real hexTrailing60: 0
@@ -651,6 +664,16 @@ Item {
       root.hexPeak = num(hx.peak)
       root.hexPeakAt = num(hx.peakAt)
       root.hexTokPerSec = num(hx.tokPerSec)
+      var hf = hx.fleet && typeof hx.fleet === "object" ? hx.fleet : ({})
+      root.hexResidentGb = num(hf.residentGb)
+      root.hexPeakGb = num(hf.peakGb)
+      root.hexBusyPct = num(hf.busyPct)
+      root.hexSwaps = num(hf.swaps)
+      root.hexLastSwapAt = num(hf.lastSwapAt)
+      root.hexInstalled = num(hf.installed)
+      root.hexDiskGb = num(hf.diskGb)
+      root.hexVersion = String(hf.version || "")
+      root.hexWarmMs = hf.warmMs && typeof hf.warmMs === "object" ? hf.warmMs : ({})
       root.hexTrailing5 = num(hx.trailing ? hx.trailing.m5 : 0)
       root.hexTrailing60 = num(hx.trailing ? hx.trailing.m60 : 0)
       root.hexShare = Math.max(0, Math.min(1, num(hx.share)))

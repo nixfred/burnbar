@@ -35,7 +35,8 @@ class FakeHex(BaseHTTPRequestHandler):
 
     def do_GET(self):
         FakeHex.hits.append(self.path)
-        raw = json.dumps(FakeHex.body).encode()
+        body = {"version": "9.9.9"} if self.path == "/api/version" else FakeHex.body
+        raw = json.dumps(body).encode()
         self.send_response(FakeHex.status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(raw)))
@@ -133,11 +134,11 @@ class HexTests(unittest.TestCase):
         self.assertEqual((warm["name"], warm["vramGb"], warm["context"]), ("gpt-oss:120b", 64.4, 32768))
         # Nanosecond timestamps (Ollama writes nine fractional digits) must still parse.
         self.assertGreater(warm["expiresAt"], 1_700_000_000_000)
-        self.assertEqual(FakeHex.hits, ["/api/ps"])
+        self.assertEqual(FakeHex.hits, ["/api/ps", "/api/tags", "/api/version"])
         self.collect("--hex-url", self.url, now=NOW_MS + 29_000)
-        self.assertEqual(len(FakeHex.hits), 1, "a second run inside the TTL must not ask again")
+        self.assertEqual(len(FakeHex.hits), 3, "a second run inside the TTL must not ask again")
         self.collect("--hex-url", self.url, now=NOW_MS + 31_000)
-        self.assertEqual(len(FakeHex.hits), 2)
+        self.assertEqual(FakeHex.hits[3:], ["/api/ps"], "the installed list is only re-read every 10 minutes")
 
     def test_the_url_never_reaches_history_json(self):
         self.collect("--hex-url", self.url)
@@ -174,6 +175,35 @@ class HexTests(unittest.TestCase):
         for row in loaded:
             self.assertLessEqual(len(row["name"]), 64)
             self.assertEqual((row["vramGb"], row["context"], row["expiresAt"]), (0, 0, 0))
+
+    def test_fleet_samples_what_any_client_made_resident(self):
+        def warm(*names):
+            FakeHex.body = {"models": [{"name": n, "size_vram": 10e9, "context_length": 1} for n in names]}
+        warm("a")
+        self.collect("--hex-url", self.url, now=NOW_MS)
+        warm("a", "b")
+        self.collect("--hex-url", self.url, now=NOW_MS + 40_000)      # b appeared: a swap
+        warm("b")
+        self.collect("--hex-url", self.url, now=NOW_MS + 80_000)
+        warm()
+        data = self.collect("--hex-url", self.url, now=NOW_MS + 120_000)
+        fleet = data["hex"]["fleet"]
+        self.assertEqual(fleet["samples"], 4)
+        self.assertEqual(fleet["swaps"], 1)
+        self.assertEqual(fleet["lastSwapAt"], NOW_MS + 40_000)
+        self.assertEqual(fleet["peakGb"], 20.0)
+        self.assertEqual(fleet["busyPct"], 75)
+        self.assertEqual(fleet["residentGb"], 0)
+        self.assertEqual(fleet["warmMs"], {"a": 40_000, "b": 80_000})
+        self.assertEqual(max(b["hexGb"] for b in data["buckets"]), 20.0)
+        self.assertEqual((fleet["installed"], fleet["version"]), (1, "9.9.9"))   # the fake answers /api/tags with its one-model list
+        self.assertNotIn("inv", data["hex"]["box"])
+
+    def test_a_gap_between_samples_is_not_warm_time(self):
+        FakeHex.body = {"models": [{"name": "a", "size_vram": 1e9}]}
+        self.collect("--hex-url", self.url, now=NOW_MS)
+        data = self.collect("--hex-url", self.url, now=NOW_MS + 30 * 60_000)    # burnbar was not running
+        self.assertEqual(data["hex"]["fleet"]["warmMs"], {})
 
     def test_no_hex_traffic_leaves_an_empty_block_not_a_missing_one(self):
         data = self.collect()

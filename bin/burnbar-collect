@@ -191,7 +191,7 @@ t5 = now_ms - 5 * 60_000
 t60 = now_ms - 60 * 60_000
 
 buckets = [{"t": grid_start + i * BUCKET_MS, "claude": 0, "codex": 0, "grok": 0, "kimi": 0,
-            "zcode": 0, "local": 0, "hex": 0}
+            "zcode": 0, "local": 0, "hex": 0, "hexGb": 0}
            for i in range(BUCKETS)]
 
 
@@ -2301,24 +2301,106 @@ def fetch_hex_ps(url):
     return True, "", loaded
 
 
-def hex_probe():
-    global hex_probe_fresh
-    if not HEX_URL:
-        return {"configured": False, "online": False, "error": "", "at": 0, "loaded": []}
+HEX_INV_TTL_MS = 600_000
+HEX_SAMPLES_FILE = OUT_DIR / "hex-samples.jsonl"
+HEX_SAMPLE_GAP_MS = 90_000      # a longer gap between samples is not counted as warm time
+hex_new_sample = None
+
+
+def fetch_hex_inventory(url):
+    """What is installed on the box, whoever installed it: {models, diskGb, version}. Never raises."""
+    out = {"models": 0, "diskGb": 0, "version": "", "at": now_ms}
     try:
-        hit = json.loads(HEX_PROBE_FILE.read_text())
-        at = hit.get("at")
-        if (hit.get("url") == HEX_URL and isinstance(at, int) and not isinstance(at, bool)
-                and 0 <= now_ms - at < HEX_PROBE_TTL_MS and isinstance(hit.get("loaded"), list)):
-            return dict(hit, configured=True)
+        with urllib.request.urlopen(url.rstrip("/") + "/api/tags", timeout=HEX_PROBE_TIMEOUT_S) as r:
+            rows = json.loads(r.read(1024 * 1024).decode("utf-8", "replace")).get("models")
+        if isinstance(rows, list):
+            out["models"] = len(rows)
+            out["diskGb"] = round(sum(m["size"] for m in rows if isinstance(m, dict)
+                                      and isinstance(m.get("size"), (int, float)) and not isinstance(m.get("size"), bool)
+                                      and 0 <= m["size"] < 1e13) / 1e9)
+        with urllib.request.urlopen(url.rstrip("/") + "/api/version", timeout=HEX_PROBE_TIMEOUT_S) as r:
+            out["version"] = str(json.loads(r.read(4096).decode("utf-8", "replace")).get("version") or "")[:24]
     except Exception:
         pass
+    return out
+
+
+def hex_probe():
+    global hex_probe_fresh, hex_new_sample
+    if not HEX_URL:
+        return {"configured": False, "online": False, "error": "", "at": 0, "loaded": [], "inv": {}}
+    prev = {}
+    try:
+        prev = json.loads(HEX_PROBE_FILE.read_text())
+        at = prev.get("at")
+        if (prev.get("url") == HEX_URL and isinstance(at, int) and not isinstance(at, bool)
+                and 0 <= now_ms - at < HEX_PROBE_TTL_MS and isinstance(prev.get("loaded"), list)):
+            return dict(prev, configured=True)
+    except Exception:
+        prev = {}
     online, error, loaded = fetch_hex_ps(HEX_URL)
     hex_probe_fresh = True
-    return {"configured": True, "url": HEX_URL, "online": online, "error": error, "at": now_ms, "loaded": loaded}
+    inv = prev.get("inv") if isinstance(prev.get("inv"), dict) and prev.get("url") == HEX_URL else {}
+    if online and not (isinstance(inv.get("at"), int) and 0 <= now_ms - inv["at"] < HEX_INV_TTL_MS):
+        inv = fetch_hex_inventory(HEX_URL)
+    if online:
+        hex_new_sample = {"ts": now_ms, "gb": round(sum(m["vramGb"] for m in loaded), 1),
+                          "names": sorted(m["name"] for m in loaded)}
+    return {"configured": True, "url": HEX_URL, "online": online, "error": error, "at": now_ms,
+            "loaded": loaded, "inv": inv}
+
+
+def hex_fleet(state):
+    """Everything the box itself shows to any caller, over the window: what was resident and
+    for how long, how often the resident model changed, how much memory it held. Sampled each
+    time the probe actually asks (every 30 s while Burn Bar runs), so it needs no ledger and
+    sees every client, not just this machine."""
+    samples = []
+    try:
+        for line in HEX_SAMPLES_FILE.read_text().splitlines():
+            try:
+                rec = json.loads(line)
+                if (isinstance(rec.get("ts"), int) and in_window(rec["ts"]) and isinstance(rec.get("names"), list)
+                        and isinstance(rec.get("gb"), (int, float)) and 0 <= rec["gb"] < 100_000):
+                    samples.append(rec)
+            except (ValueError, AttributeError):
+                continue
+    except OSError:
+        pass
+    if hex_new_sample and (not samples or samples[-1]["ts"] < hex_new_sample["ts"]):
+        samples.append(hex_new_sample)
+    samples.sort(key=lambda r: r["ts"])
+    warm_ms, swaps, last_swap, busy, peak = {}, 0, 0, 0, 0.0
+    for i, rec in enumerate(samples):
+        names = [str(n)[:64] for n in rec["names"][:8]]
+        peak = max(peak, float(rec["gb"]))
+        if names:
+            busy += 1
+        prev = samples[i - 1]["names"] if i else []
+        if i and any(n not in prev for n in names):
+            swaps += 1
+            last_swap = rec["ts"]
+        if i:
+            dt = rec["ts"] - samples[i - 1]["ts"]
+            if 0 < dt <= HEX_SAMPLE_GAP_MS:
+                for n in names:
+                    warm_ms[n] = warm_ms.get(n, 0) + dt
+        b = bucket_for(rec["ts"])
+        if b is not None:
+            b["hexGb"] = max(b["hexGb"], float(rec["gb"]))
+    inv = state.get("inv") or {}
+    return {
+        "residentGb": round(sum(m["vramGb"] for m in state.get("loaded", [])), 1),
+        "peakGb": round(peak, 1), "samples": len(samples),
+        "busyPct": round(100 * busy / len(samples)) if samples else 0,
+        "swaps": swaps, "lastSwapAt": last_swap,
+        "warmMs": dict(sorted(warm_ms.items(), key=lambda kv: -kv[1])[:6]),
+        "installed": inv.get("models", 0), "diskGb": inv.get("diskGb", 0), "version": inv.get("version", ""),
+    }
 
 
 hex_state = hex_probe()
+hex_fleet_stats = hex_fleet(hex_state) if HEX_URL else {}
 hex_models = {(k[4:] if k.startswith("hex:") else k): v for k, v in hex_box.by_model.items()}
 
 refresh_kimi_plan()
@@ -2355,7 +2437,7 @@ payload = {
     # above; `share` is just the part of everything burned that went to hex.
     "hex": dict(hex_box.payload(), byModel=hex_models, share=(hex_box.total / all_burn) if all_burn > 0 else 0,
                 tokPerSec=round(hex_speed[0] * 1000 / hex_speed[1], 1) if hex_speed[1] > 0 else 0,
-                box={k: v for k, v in hex_state.items() if k != "url"}),
+                box={k: v for k, v in hex_state.items() if k not in ("url", "inv")}, fleet=hex_fleet_stats),
     # Which agents this machine actually uses. The strip hides the rest.
     "presence": {
         "claude": claude_present,
@@ -2419,6 +2501,12 @@ except (OSError, ValueError):
 if hex_probe_fresh:
     try:
         write_atomic(HEX_PROBE_FILE, json.dumps(hex_state, allow_nan=False))
+        if hex_new_sample:
+            with open(HEX_SAMPLES_FILE, "a") as fh:
+                fh.write(json.dumps(hex_new_sample) + "\n")
+            if HEX_SAMPLES_FILE.stat().st_size > 400_000:     # keep only what the window can still use
+                keep = HEX_SAMPLES_FILE.read_text().splitlines()[-4000:]
+                write_atomic(HEX_SAMPLES_FILE, "\n".join(keep) + "\n")
     except (OSError, ValueError):
         pass  # only costs one extra probe next run
 

@@ -9,10 +9,12 @@
   there. The caller now appends a `"source": "hex"` line to `local-usage.jsonl`
   (the same ledger the NPU embedder uses), and the collector counts it in the
   local lane and the offload share once, and also reports it as its own `hex`
-  block. The cockpit gets a HEX card like the subscriptions', in its own colour:
-  tokens over the window, requests, share of all burn, tok/s (when the ledger
-  line carries `ms`), the burn graph over time, input against output and a model
-  leaderboard, on any machine, local GPU lane or not. With **Shared Ollama box URL** (`hexUrl`) set, it also reads `/api/ps`
+  block. The cockpit gets a HEX card like the subscriptions', in its own colour,
+  about the whole box and every client of it: memory resident now, models warm of
+  installed, memory held over time, swaps, busy share, and a leaderboard of the
+  models that stayed warm longest, sampled from the box's own `/api/ps` and
+  `/api/tags`. Token counts and tok/s (the ledger line may carry `ms`) stay
+  on the card, marked this machine only. On any machine, local GPU lane or not. With **Shared Ollama box URL** (`hexUrl`) set, it also reads `/api/ps`
   once per 30 s for the warm model, its memory and context, and says
   unreachable in red when the box does not answer. The strip tooltip gains one
   hex line. The URL is never written to `history.json`, and with no URL there is

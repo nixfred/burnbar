@@ -502,10 +502,16 @@ same ledger line with `"source": "hex"`, taking `prompt` and `output` from the
 
 Add `"ms"` (how long the request took) and the card also shows generation speed.
 Those tokens count toward the local lane and the offload share once, exactly as
-above, and hex gets a card of its own beside the subscriptions, in its own
-colour, built like theirs: tokens over the window, requests, share of all burn,
-tokens per minute, the burn graph over time, input against output, a model
-leaderboard and tok/s. It does not depend on the local GPU lane.
+above. hex gets a card of its own beside the subscriptions, in its own colour,
+and the card is about the whole box, not this machine: with `hexUrl` set, Burn
+Bar samples what the box itself reports to any caller (`/api/ps`, `/api/tags`,
+`/api/version`) every 30 s into `hex-samples.jsonl`. The card shows the memory
+resident now, how many models are warm of how many are installed, the memory held
+over time, the peak, how often the resident model swapped, how much of the time
+something was loaded, and a leaderboard of which models stayed warm longest, all
+from every client at once. Tokens and tok/s stay on the card in their own strip
+marked "this machine only", because Ollama keeps no per-request count and only the
+caller sees them. It does not depend on the local GPU lane.
 `model` is whatever the caller asked for (an alias such as `chat` stays `chat`).
 Set **Shared Ollama box URL** (`hexUrl`, e.g. `http://hex:11434`) and Burn Bar
 also asks the box's `/api/ps` which model is warm and how much memory it holds:

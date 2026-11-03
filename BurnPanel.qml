@@ -902,8 +902,43 @@ Panel {
     return a === "claude" ? showClaude : a === "codex" ? showCodex
       : a === "grok" ? showGrok : a === "kimi" ? showKimi : a === "zcode" ? showZcode : false
   }
+  // hex: a shared Ollama box this machine only calls over HTTP. Shown once it
+  // has logged a request or Burn Bar was told where it lives, and independent
+  // of the local GPU lane: a machine that hides that lane still sees hex.
+  readonly property bool hexShown: !!svc && (svc.hexTurns > 0 || svc.hexBoxConfigured)
+  readonly property color hexColor: svc && svc.hexBoxConfigured && !svc.hexBoxOnline ? Commons.Color.urgent : dim
+  function hexHeader() {
+    var s = svc
+    if (!s) return ""
+    return "HEX  ·  " + widget.compact(s.hexTotal) + " TOKENS KEPT OFF FRONTIER"
+      + (s.hexTurns > 0 ? "  ·  " + Math.round(s.hexShare * 100) + "% OF ALL BURN" : "")
+  }
+  function hexDetail() {
+    void tick
+    var s = svc
+    if (!s) return ""
+    var sp = s.hexSplit || {}
+    var top = topModel(s.hexByModel)
+    var calls = s.hexTurns > 0
+      ? s.hexTurns + (s.hexTurns === 1 ? " request" : " requests") + " · prompt " + widget.compact(sp.input || 0)
+        + " · generated " + widget.compact(sp.output || 0)
+        + (top !== "" ? " · mostly " + plainText(top, 48) : "")
+      : "no request logged yet in this window"
+    if (!s.hexBoxConfigured) return calls
+    if (!s.hexBoxOnline) return calls + " · box unreachable"
+      + (s.hexBoxError !== "" ? ": " + plainText(s.hexBoxError, 80) : "")
+    var warm = s.hexBoxLoaded || []
+    var names = []
+    for (var i = 0; i < warm.length && i < 3; i++)
+      names.push(plainText(warm[i].name, 40)
+        + (warm[i].vramGb > 0 ? " " + Number(warm[i].vramGb).toFixed(1) + " GB" : ""))
+    return calls + " · " + (names.length
+      ? "warm: " + names.join(" + ") + (warm.length > 3 ? " + " + (warm.length - 3) + " more" : "")
+        + (warm.length === 1 && warm[0].context > 0 ? " · ctx " + warm[0].context : "")
+      : "nothing warm")
+  }
   readonly property int cardCount: (showClaude ? 1 : 0) + (showCodex ? 1 : 0) + (showGrok ? 1 : 0)
-    + (showKimi ? 1 : 0) + (showZcode ? 1 : 0) + (showLocal ? 1 : 0)
+    + (showKimi ? 1 : 0) + (showZcode ? 1 : 0) + (showLocal ? 1 : 0) + (hexShown && !showLocal ? 1 : 0)
 
   // The 5-hour window is opt-in here: the weekly and monthly windows are the
   // ones that usually end a working day. With the switch off, Claude's still
@@ -2491,51 +2526,23 @@ Panel {
 
             // ── hex: the shared box this machine calls over HTTP ────────────
             // Its tokens are already inside the line above (they count toward
-            // the offload share); this breaks hex out so the number a frontier
-            // model did not have to burn is visible on its own. Hidden until
-            // hex has logged a request or Burn Bar was told where it lives.
-            readonly property bool hexShown: !!panel.svc && (panel.svc.hexTurns > 0 || panel.svc.hexBoxConfigured)
+            // the offload share); this breaks hex out on its own line. With the
+            // local lane hidden it gets a card of its own (hexCard below).
             PanelSectionHeader {
-              visible: parent.hexShown
+              visible: panel.hexShown
               Layout.fillWidth: true
-              text: panel.svc
-                ? "HEX  ·  " + panel.widget.compact(panel.svc.hexTotal) + " TOKENS KEPT OFF FRONTIER"
-                  + (panel.svc.hexTurns > 0 ? "  ·  " + Math.round(panel.svc.hexShare * 100) + "% OF ALL BURN" : "")
-                : ""
+              text: panel.hexHeader()
               foreground: panel.foreground
               fontFamily: panel.fontFamily
               elide: Text.ElideRight
             }
             Caption {
-              visible: parent.hexShown
+              visible: panel.hexShown
               Layout.fillWidth: true
               wrapMode: Text.WordWrap
               elide: Text.ElideNone
-              color: panel.svc && panel.svc.hexBoxConfigured && !panel.svc.hexBoxOnline ? Commons.Color.urgent : panel.dim
-              text: {
-                void panel.tick
-                var s = panel.svc
-                if (!s) return ""
-                var sp = s.hexSplit || {}
-                var top = panel.topModel(s.hexByModel)
-                var calls = s.hexTurns > 0
-                  ? s.hexTurns + (s.hexTurns === 1 ? " request" : " requests") + " · prompt " + panel.widget.compact(sp.input || 0)
-                    + " · generated " + panel.widget.compact(sp.output || 0)
-                    + (top !== "" ? " · mostly " + panel.plainText(top, 48) : "")
-                  : "no request logged yet in this window"
-                if (!s.hexBoxConfigured) return calls
-                if (!s.hexBoxOnline) return calls + " · box unreachable"
-                  + (s.hexBoxError !== "" ? ": " + panel.plainText(s.hexBoxError, 80) : "")
-                var warm = s.hexBoxLoaded || []
-                var names = []
-                for (var i = 0; i < warm.length && i < 3; i++)
-                  names.push(panel.plainText(warm[i].name, 40)
-                    + (warm[i].vramGb > 0 ? " " + Number(warm[i].vramGb).toFixed(1) + " GB" : ""))
-                return calls + " · " + (names.length
-                  ? "warm: " + names.join(" + ") + (warm.length > 3 ? " + " + (warm.length - 3) + " more" : "")
-                    + (warm.length === 1 && warm[0].context > 0 ? " · ctx " + warm[0].context : "")
-                  : "nothing warm")
-              }
+              color: panel.hexColor
+              text: panel.hexDetail()
             }
 
             // Jetson telemetry, two across so every tile has room for its
@@ -2732,6 +2739,52 @@ Panel {
               elide: Text.ElideNone
             }
 
+              Item { Layout.fillHeight: true }
+            }
+          }
+
+          // hex is not this machine's GPU, so it must not vanish with the local
+          // lane. With that lane hidden it is a card of its own.
+          Rectangle {
+            id: hexCard
+            visible: panel.hexShown && !panel.showLocal
+            Layout.fillWidth: visible
+            Layout.fillHeight: true
+            Layout.preferredWidth: visible ? 1 : 0
+            Layout.minimumWidth: 0
+            implicitHeight: visible ? hexBody.implicitHeight + Style.space(26) : 0
+            radius: Style.cornerRadius
+            color: Util.alpha(panel.widget.localHot, 0.055)
+            border.width: 1
+            border.color: Util.alpha(panel.widget.localHot, 0.32)
+            opacity: panel.reveal
+            transform: Translate { y: (1 - panel.reveal) * 12 }
+
+            ColumnLayout {
+              id: hexBody
+              anchors.fill: parent
+              anchors.margins: Style.space(13)
+              spacing: Style.space(8)
+
+              PanelSectionHeader {
+                Layout.fillWidth: true
+                text: panel.hexHeader()
+                foreground: panel.foreground
+                fontFamily: panel.fontFamily
+                elide: Text.ElideRight
+              }
+              Gauge {
+                visible: !!panel.svc && panel.svc.hexTurns > 0
+                fraction: panel.svc ? panel.svc.hexShare : 0
+                accent: panel.widget.localHot
+              }
+              Caption {
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                elide: Text.ElideNone
+                color: panel.hexColor
+                text: panel.hexDetail()
+              }
               Item { Layout.fillHeight: true }
             }
           }

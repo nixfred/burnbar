@@ -500,18 +500,19 @@ same ledger line with `"source": "hex"`, taking `prompt` and `output` from the
 {"ts": 1793673727093, "source": "hex", "model": "chat", "prompt": 900, "output": 300}
 ```
 
+Add `"ms"` (how long the request took) and the card also shows generation speed.
 Those tokens count toward the local lane and the offload share once, exactly as
-above, and the cockpit breaks them out on their own line under the local tokens:
-how many tokens hex took, how many requests, prompt against generated, the model
-used most, and the share of everything burned on this machine that went to it.
+above, and hex gets a card of its own beside the subscriptions, in its own
+colour, built like theirs: tokens over the window, requests, share of all burn,
+tokens per minute, the burn graph over time, input against output, a model
+leaderboard and tok/s. It does not depend on the local GPU lane.
 `model` is whatever the caller asked for (an alias such as `chat` stays `chat`).
 Set **Shared Ollama box URL** (`hexUrl`, e.g. `http://hex:11434`) and Burn Bar
 also asks the box's `/api/ps` which model is warm and how much memory it holds:
 one GET, at most every 30 seconds, 3 second timeout, and the URL is never written
 to `history.json`. Left empty, Burn Bar never touches the network for it. A box
 that does not answer shows in red as unreachable, and the counts stay. The
-section appears once hex has logged a request or a URL is set, in the local
-column, so a machine with no discrete GPU does not show it.
+card appears once hex has logged a request or a URL is set, on any machine.
 
 **On nano**: `./nano/install.sh [host]` installs, over ssh with passwordless
 sudo: the `ollama-meter` unit (DynamicUser, `0.0.0.0:11434` → `127.0.0.1:11435`);

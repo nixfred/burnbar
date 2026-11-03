@@ -780,6 +780,10 @@ BarWidget {
   readonly property color zcodeCold: "#233312"
   readonly property color zcodeWarm: "#6B9A2E"
   readonly property color zcodeHot:  "#B8E356"
+  // hex, the shared Ollama box: fuchsia, apart from every lane's hue.
+  readonly property color hexCold: "#2E0A36"
+  readonly property color hexWarm: "#9B2FB8"
+  readonly property color hexHot:  "#E879F9"
 
   readonly property color baseLocalCold: "#241046"
   readonly property color baseLocalWarm: "#7A3BE0"

@@ -1372,6 +1372,7 @@ local = Agent("local")
 # to `local`, which is what makes it count toward the offload share; this agent
 # only keeps hex's own numbers apart and is never added to all_burn.
 hex_box = Agent("hex")
+hex_speed = [0, 0]      # generated tokens and milliseconds, over requests that were timed
 local_available = True
 local_reason = ""
 jhit = valid_journal_entry(cache.get(JOURNAL_KEY))
@@ -1468,14 +1469,17 @@ def ledger_extract(line, _state):
     if prompt is None or output is None or not source or prompt + output <= 0:
         return None
     name = source + ":" + model if model else source
-    return [ts, prompt + output, "", name, [prompt, 0, output, 0]]
+    ms = count(rec.get("ms"))       # optional: how long the request took
+    return [ts, prompt + output, "", name, [prompt, 0, output, 0], ms or 0]
 
 
 for pt in scan(LOCAL_LEDGER, ledger_extract):
     try:
         local.add(pt)
         if pt[3] == "hex" or pt[3].startswith("hex:"):
-            hex_box.add(pt)
+            if hex_box.add(pt) and len(pt) > 5 and pt[5] > 0 and pt[4][2] > 0:
+                hex_speed[0] += pt[4][2]
+                hex_speed[1] += pt[5]
     except Exception:
         continue
 if not err:
@@ -2350,6 +2354,7 @@ payload = {
     # hex's own numbers. Its tokens are already inside `local` and `offloadShare`
     # above; `share` is just the part of everything burned that went to hex.
     "hex": dict(hex_box.payload(), byModel=hex_models, share=(hex_box.total / all_burn) if all_burn > 0 else 0,
+                tokPerSec=round(hex_speed[0] * 1000 / hex_speed[1], 1) if hex_speed[1] > 0 else 0,
                 box={k: v for k, v in hex_state.items() if k != "url"}),
     # Which agents this machine actually uses. The strip hides the rest.
     "presence": {

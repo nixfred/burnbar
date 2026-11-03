@@ -100,6 +100,16 @@ class HexTests(unittest.TestCase):
         self.assertAlmostEqual(hx["share"], 1410 / 1460)
         self.assertTrue(all("hex" in b for b in data["buckets"]))
 
+    def test_speed_comes_only_from_timed_requests(self):
+        self.ledger.write_text(
+            record(ts=NOW_MS - 60_000, source="hex", model="chat", prompt=10, output=300, ms=10_000)
+            + record(ts=NOW_MS - 50_000, source="hex", model="code", prompt=10, output=100, ms=5_000)
+            + record(ts=NOW_MS - 40_000, source="hex", model="chat", prompt=10, output=999)      # untimed
+            + record(ts=NOW_MS - 30_000, source="hex", model="chat", prompt=10, output=50, ms="slow"))
+        hx = self.collect()["hex"]
+        self.assertEqual(hx["tokPerSec"], 26.7)          # (300 + 100) tokens / 15 s
+        self.assertEqual(hx["turns"], 4)
+
     def test_without_a_url_nothing_touches_the_network(self):
         self.write_ledger()
         box = self.collect()["hex"]["box"]

@@ -158,6 +158,11 @@ Item {
   property real hexTotal: 0
   property real hexTurns: 0
   property real hexLastAt: 0
+  property real hexFirstAt: 0
+  property real hexPeak: 0
+  property real hexPeakAt: 0
+  property real hexTokPerSec: 0
+  readonly property real hexSessions: 0
   property real hexTrailing5: 0
   property real hexTrailing60: 0
   property real hexShare: 0
@@ -642,6 +647,10 @@ Item {
       root.hexTotal = num(hx.total)
       root.hexTurns = num(hx.turns)
       root.hexLastAt = num(hx.lastAt)
+      root.hexFirstAt = num(hx.firstAt)
+      root.hexPeak = num(hx.peak)
+      root.hexPeakAt = num(hx.peakAt)
+      root.hexTokPerSec = num(hx.tokPerSec)
       root.hexTrailing5 = num(hx.trailing ? hx.trailing.m5 : 0)
       root.hexTrailing60 = num(hx.trailing ? hx.trailing.m60 : 0)
       root.hexShare = Math.max(0, Math.min(1, num(hx.share)))

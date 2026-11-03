@@ -325,6 +325,7 @@ Panel {
       : agent === "grok" ? svc.grokTrailing5
       : agent === "kimi" ? svc.kimiTrailing5
       : agent === "zcode" ? svc.zcodeTrailing5
+      : agent === "hex" ? svc.hexTrailing5
       : svc.localTokensTrailing5
   }
   function trailing60(agent) {
@@ -334,6 +335,7 @@ Panel {
       : agent === "grok" ? svc.grokTrailing60
       : agent === "kimi" ? svc.kimiTrailing60
       : agent === "zcode" ? svc.zcodeTrailing60
+      : agent === "hex" ? svc.hexTrailing60
       : svc.localTokensTrailing60
   }
   function windowTotal(agent) {
@@ -343,6 +345,7 @@ Panel {
       : agent === "grok" ? svc.grokTotal
       : agent === "kimi" ? svc.kimiTotal
       : agent === "zcode" ? svc.zcodeTotal
+      : agent === "hex" ? svc.hexTotal
       : svc.localTokensTotal
   }
   function rateNow(agent) { return trailing5(agent) / 5 }
@@ -884,61 +887,42 @@ Panel {
     return (v === undefined || v === null) ? fallback : v
   }
   function agentName(a) {
-    return a === "claude" ? "Claude" : a === "codex" ? "Codex" : a === "grok" ? "Grok" : a === "kimi" ? "Kimi" : a === "zcode" ? "Zcode" : "Kimi"
+    return a === "claude" ? "Claude" : a === "codex" ? "Codex" : a === "grok" ? "Grok" : a === "kimi" ? "Kimi" : a === "zcode" ? "Zcode" : a === "hex" ? "Hex" : "Kimi"
   }
   function agentHot(a) {
     var w = panel.widget
-    return a === "claude" ? w.claudeHot : a === "codex" ? w.codexHot : a === "grok" ? w.grokHot : a === "kimi" ? w.kimiHot : a === "zcode" ? w.zcodeHot : w.kimiHot
+    return a === "claude" ? w.claudeHot : a === "codex" ? w.codexHot : a === "grok" ? w.grokHot : a === "kimi" ? w.kimiHot : a === "zcode" ? w.zcodeHot : a === "hex" ? w.hexHot : w.kimiHot
   }
   function agentWarm(a) {
     var w = panel.widget
-    return a === "claude" ? w.claudeWarm : a === "codex" ? w.codexWarm : a === "grok" ? w.grokWarm : a === "kimi" ? w.kimiWarm : a === "zcode" ? w.zcodeWarm : w.kimiWarm
+    return a === "claude" ? w.claudeWarm : a === "codex" ? w.codexWarm : a === "grok" ? w.grokWarm : a === "kimi" ? w.kimiWarm : a === "zcode" ? w.zcodeWarm : a === "hex" ? w.hexWarm : w.kimiWarm
   }
   function agentCold(a) {
     var w = panel.widget
-    return a === "claude" ? w.claudeCold : a === "codex" ? w.codexCold : a === "grok" ? w.grokCold : a === "kimi" ? w.kimiCold : a === "zcode" ? w.zcodeCold : w.kimiCold
+    return a === "claude" ? w.claudeCold : a === "codex" ? w.codexCold : a === "grok" ? w.grokCold : a === "kimi" ? w.kimiCold : a === "zcode" ? w.zcodeCold : a === "hex" ? w.hexCold : w.kimiCold
   }
   function agentShown(a) {
     return a === "claude" ? showClaude : a === "codex" ? showCodex
-      : a === "grok" ? showGrok : a === "kimi" ? showKimi : a === "zcode" ? showZcode : false
+      : a === "grok" ? showGrok : a === "kimi" ? showKimi : a === "zcode" ? showZcode : a === "hex" ? hexShown : false
   }
   // hex: a shared Ollama box this machine only calls over HTTP. Shown once it
   // has logged a request or Burn Bar was told where it lives, and independent
   // of the local GPU lane: a machine that hides that lane still sees hex.
   readonly property bool hexShown: !!svc && (svc.hexTurns > 0 || svc.hexBoxConfigured)
-  readonly property color hexColor: svc && svc.hexBoxConfigured && !svc.hexBoxOnline ? Commons.Color.urgent : dim
-  function hexHeader() {
+  // What the box has resident right now, one short line for the hex card footer.
+  function hexWarm() {
     var s = svc
-    if (!s) return ""
-    return "HEX  ·  " + widget.compact(s.hexTotal) + " OFF FRONTIER"
-      + (s.hexTurns > 0 ? "  ·  " + Math.round(s.hexShare * 100) + "% OF BURN" : "")
-  }
-  function hexDetail() {
-    void tick
-    var s = svc
-    if (!s) return ""
-    var sp = s.hexSplit || {}
-    var top = topModel(s.hexByModel)
-    var calls = s.hexTurns > 0
-      ? s.hexTurns + (s.hexTurns === 1 ? " request" : " requests") + " · prompt " + widget.compact(sp.input || 0)
-        + " · generated " + widget.compact(sp.output || 0)
-        + (top !== "" ? " · mostly " + plainText(top, 48) : "")
-      : "no request logged yet in this window"
-    if (!s.hexBoxConfigured) return calls
-    if (!s.hexBoxOnline) return calls + " · box unreachable"
-      + (s.hexBoxError !== "" ? ": " + plainText(s.hexBoxError, 80) : "")
+    if (!s || !s.hexBoxConfigured) return ""
+    if (!s.hexBoxOnline) return "box unreachable" + (s.hexBoxError !== "" ? ": " + plainText(s.hexBoxError, 60) : "")
     var warm = s.hexBoxLoaded || []
+    if (!warm.length) return "nothing warm"
     var names = []
-    for (var i = 0; i < warm.length && i < 3; i++)
-      names.push(plainText(warm[i].name, 40)
-        + (warm[i].vramGb > 0 ? " " + Number(warm[i].vramGb).toFixed(1) + " GB" : ""))
-    return calls + " · " + (names.length
-      ? "warm: " + names.join(" + ") + (warm.length > 3 ? " + " + (warm.length - 3) + " more" : "")
-        + (warm.length === 1 && warm[0].context > 0 ? " · ctx " + warm[0].context : "")
-      : "nothing warm")
+    for (var i = 0; i < warm.length && i < 2; i++)
+      names.push(plainText(warm[i].name, 28) + (warm[i].vramGb > 0 ? " " + Number(warm[i].vramGb).toFixed(0) + " GB" : ""))
+    return "warm: " + names.join(" + ") + (warm.length > 2 ? " +" + (warm.length - 2) : "")
   }
   readonly property int cardCount: (showClaude ? 1 : 0) + (showCodex ? 1 : 0) + (showGrok ? 1 : 0)
-    + (showKimi ? 1 : 0) + (showZcode ? 1 : 0) + (showLocal ? 1 : 0) + (hexShown && !showLocal ? 1 : 0)
+    + (showKimi ? 1 : 0) + (showZcode ? 1 : 0) + (showLocal ? 1 : 0) + (hexShown ? 1 : 0)
 
   // The 5-hour window is opt-in here: the weekly and monthly windows are the
   // ones that usually end a working day. With the switch off, Claude's still
@@ -1671,12 +1655,16 @@ Panel {
                 if (card.primary && !card.primaryUnknown)
                   return Math.round(Number(card.primary.percent) * 100) + "% of " + panel.windowShort(card.primary.label)
                     + "  ·  resets in " + panel.untilText(card.primary.resetsAt)
+                if (card.agent === "hex")
+                  return panel.sv("hex", "Turns", 0) + " requests  ·  " + Math.round(panel.svc.hexShare * 100) + "% of all burn"
+                    + (panel.svc.hexTokPerSec > 0 ? "  ·  " + panel.svc.hexTokPerSec.toFixed(0) + " tok/s" : "")
                 return panel.sv(card.agent, "Turns", 0) + " turns  ·  " + panel.sv(card.agent, "Sessions", 0) + " sessions"
               }
             }
           }
           Caption {
             // A bare arrow was the whole affordance; it now names where it goes.
+            visible: card.agent !== "hex"
             text: "⇄ " + (panel.heroMode === "budget" ? "tokens" : "budget")
             color: heroFlip.containsMouse ? panel.foreground : panel.dim
           }
@@ -1685,6 +1673,7 @@ Panel {
           id: heroFlip
           anchors.fill: parent
           hoverEnabled: true
+          enabled: card.agent !== "hex"
           cursorShape: Qt.PointingHandCursor
           onClicked: panel.widget.setHeroMode(panel.heroMode === "budget" ? "tokens" : "budget")
         }
@@ -1756,7 +1745,7 @@ Panel {
         }
       }
       Caption {
-        visible: card.trust.text !== ""
+        visible: card.agent !== "hex" && card.trust.text !== ""
         Layout.fillWidth: true
         text: card.trust.text
         color: card.trust.urgent === true ? Commons.Color.urgent : panel.dim
@@ -1870,6 +1859,9 @@ Panel {
         Layout.fillWidth: true
         text: {
           void panel.tick
+          if (card.agent === "hex")
+            return panel.sv("hex", "Turns", 0) + " requests  ·  active " + panel.agoText(panel.sv("hex", "LastAt", 0))
+              + (panel.hexWarm() !== "" ? "  ·  " + panel.hexWarm() : "")
           return panel.sv(card.agent, "Turns", 0) + " turns  ·  " + panel.sv(card.agent, "Sessions", 0)
             + " sessions  ·  active " + panel.agoText(panel.sv(card.agent, "LastAt", 0))
         }
@@ -2374,7 +2366,7 @@ Panel {
           spacing: Style.space(14)
 
           Repeater {
-            model: ["claude", "codex", "grok", "kimi", "zcode"]
+            model: ["claude", "codex", "grok", "kimi", "zcode", "hex"]
             delegate: SubCard {
               required property string modelData
               agent: modelData
@@ -2522,27 +2514,6 @@ Panel {
                   + " · cached " + panel.widget.compact(sp.cacheRead || 0)
                   + (top !== "" ? " · mostly " + panel.plainText(top, 48) : "")
               }
-            }
-
-            // ── hex: the shared box this machine calls over HTTP ────────────
-            // Its tokens are already inside the line above (they count toward
-            // the offload share); this breaks hex out on its own line. With the
-            // local lane hidden it gets a card of its own (hexCard below).
-            PanelSectionHeader {
-              visible: panel.hexShown
-              Layout.fillWidth: true
-              text: panel.hexHeader()
-              foreground: panel.foreground
-              fontFamily: panel.fontFamily
-              elide: Text.ElideRight
-            }
-            Caption {
-              visible: panel.hexShown
-              Layout.fillWidth: true
-              wrapMode: Text.WordWrap
-              elide: Text.ElideNone
-              color: panel.hexColor
-              text: panel.hexDetail()
             }
 
             // Jetson telemetry, two across so every tile has room for its
@@ -2739,52 +2710,6 @@ Panel {
               elide: Text.ElideNone
             }
 
-              Item { Layout.fillHeight: true }
-            }
-          }
-
-          // hex is not this machine's GPU, so it must not vanish with the local
-          // lane. With that lane hidden it is a card of its own.
-          Rectangle {
-            id: hexCard
-            visible: panel.hexShown && !panel.showLocal
-            Layout.fillWidth: visible
-            Layout.fillHeight: true
-            Layout.preferredWidth: visible ? 1 : 0
-            Layout.minimumWidth: 0
-            implicitHeight: visible ? hexBody.implicitHeight + Style.space(26) : 0
-            radius: Style.cornerRadius
-            color: Util.alpha(panel.widget.localHot, 0.055)
-            border.width: 1
-            border.color: Util.alpha(panel.widget.localHot, 0.32)
-            opacity: panel.reveal
-            transform: Translate { y: (1 - panel.reveal) * 12 }
-
-            ColumnLayout {
-              id: hexBody
-              anchors.fill: parent
-              anchors.margins: Style.space(13)
-              spacing: Style.space(8)
-
-              PanelSectionHeader {
-                Layout.fillWidth: true
-                text: panel.hexHeader()
-                foreground: panel.foreground
-                fontFamily: panel.fontFamily
-                elide: Text.ElideRight
-              }
-              Gauge {
-                visible: !!panel.svc && panel.svc.hexTurns > 0
-                fraction: panel.svc ? panel.svc.hexShare : 0
-                accent: panel.widget.localHot
-              }
-              Caption {
-                Layout.fillWidth: true
-                wrapMode: Text.WordWrap
-                elide: Text.ElideNone
-                color: panel.hexColor
-                text: panel.hexDetail()
-              }
               Item { Layout.fillHeight: true }
             }
           }

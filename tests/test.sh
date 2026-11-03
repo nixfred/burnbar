@@ -110,12 +110,16 @@ python3 -m unittest discover -s tests -p 'test_zcode.py' -q \
   || fail "Zcode identity and retention"
 ok "Zcode identity, warm cache, local-only roots and retention"
 
+python3 -m unittest discover -s tests -p 'test_hex.py' -q \
+  || fail "hex shared-box accounting"
+ok "hex: ledger lines count once, the probe is cached, an unreachable box degrades"
+
 # --help is a question, not a run: it must describe the flags and exit without
 # creating a state directory or touching history.json.
 help_state="$(mktemp -d)"
 help_out=$(XDG_STATE_HOME="$help_state" XDG_CACHE_HOME="$help_state/cache" \
   python3 bin/burnbar-collect --help) || fail "--help exited non-zero"
-for flag in --window --buckets --no-local --meter-host --meter-unit --print; do
+for flag in --window --buckets --no-local --meter-host --meter-unit --hex-url --print; do
   grep -q -- "$flag" <<<"$help_out" || fail "--help does not document $flag"
 done
 [ -z "$(find "$help_state" -type f 2>/dev/null)" ] || fail "--help collected instead of just printing"

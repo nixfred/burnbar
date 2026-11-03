@@ -151,6 +151,23 @@ Item {
   property bool localTokensAvailable: false
   property string localTokensReason: ""
   property real offloadShare: 0
+  // hex: a shared Ollama box this machine only calls over HTTP. Its tokens are
+  // counted by the wrapper that calls it (one ledger line per request), and are
+  // already inside localTokens* and offloadShare above; these are hex alone.
+  // hexBoxConfigured says whether Burn Bar may ask the box what is resident.
+  property real hexTotal: 0
+  property real hexTurns: 0
+  property real hexLastAt: 0
+  property real hexTrailing5: 0
+  property real hexTrailing60: 0
+  property real hexShare: 0
+  property var hexSplit: ({})
+  property var hexByModel: ({})
+  property bool hexBoxConfigured: false
+  property bool hexBoxOnline: false
+  property string hexBoxError: ""
+  property real hexBoxAt: 0
+  property var hexBoxLoaded: []
   property real generatedAt: 0
   // real, not int: windowMinutes / bars is fractional for most settings
   // (100 / 12 = 8.33), and an int here silently rounded every rate.
@@ -287,6 +304,9 @@ Item {
   readonly property string ollamaUrl: String(setting("ollamaUrl", "http://127.0.0.1:11434") || "http://127.0.0.1:11434").slice(0, 256)
   readonly property string localHost: String(setting("localHost", "localhost") || "localhost").slice(0, 128)
   readonly property string meterUnit: String(setting("meterUnit", "ollama-meter") || "ollama-meter").slice(0, 64)
+  // A shared Ollama box reached over HTTP (hex). Empty = Burn Bar still counts
+  // its tokens from the ledger but never touches the network for it.
+  readonly property string hexUrl: String(setting("hexUrl", "") || "").trim().slice(0, 256)
   // Same clamp as the manifest schema: load is capped at 100, so a threshold
   // above it would mean "never inferencing".
   readonly property int localThreshold: boundedInt("localThreshold", 8, 1, 50)
@@ -388,7 +408,8 @@ Item {
     if (collector.running) { root.collectPending = true; return }
     root.collectPending = false
     collector.launched = false
-    collector.command = root.hasComputeGpu
+    var hexArgs = root.hexUrl !== "" ? ["--hex-url", root.hexUrl] : []
+    collector.command = (root.hasComputeGpu
       ? ["python3", root.collectorPath,
         "--window", String(root.windowMinutes),
         "--buckets", String(root.bucketCount),
@@ -397,7 +418,7 @@ Item {
       : ["python3", root.collectorPath,
         "--window", String(root.windowMinutes),
         "--buckets", String(root.bucketCount),
-        "--no-local"]
+        "--no-local"]).concat(hexArgs)
     collector.running = true
     watchdog.restart()
   }
@@ -616,6 +637,21 @@ Item {
       root.localTokensSplit = l && l.split && typeof l.split === "object" ? l.split : ({})
       root.localTokensByModel = l && l.byModel && typeof l.byModel === "object" ? l.byModel : ({})
       root.offloadShare = Math.max(0, Math.min(1, num(parsed.offloadShare)))
+      var hx = parsed.hex && typeof parsed.hex === "object" ? parsed.hex : ({})
+      var hb = hx.box && typeof hx.box === "object" ? hx.box : ({})
+      root.hexTotal = num(hx.total)
+      root.hexTurns = num(hx.turns)
+      root.hexLastAt = num(hx.lastAt)
+      root.hexTrailing5 = num(hx.trailing ? hx.trailing.m5 : 0)
+      root.hexTrailing60 = num(hx.trailing ? hx.trailing.m60 : 0)
+      root.hexShare = Math.max(0, Math.min(1, num(hx.share)))
+      root.hexSplit = hx.split && typeof hx.split === "object" ? hx.split : ({})
+      root.hexByModel = hx.byModel && typeof hx.byModel === "object" ? hx.byModel : ({})
+      root.hexBoxConfigured = hb.configured === true
+      root.hexBoxOnline = hb.online === true
+      root.hexBoxError = String(hb.error || "")
+      root.hexBoxAt = num(hb.at)
+      root.hexBoxLoaded = Array.isArray(hb.loaded) ? hb.loaded : []
       var presence = parsed.presence && typeof parsed.presence === "object" ? parsed.presence : null
       if (presence) {
         root.claudePresent = presence.claude === true

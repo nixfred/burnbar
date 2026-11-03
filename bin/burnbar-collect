@@ -129,7 +129,7 @@ def str_arg(flag, fallback, limit=64):
 USAGE = """burnbar-collect: bucket Claude, Codex, Grok and Zcode token burn into a rolling window.
 
 usage: burnbar-collect [--window MIN] [--buckets N] [--no-local]
-                       [--meter-host HOST] [--meter-unit UNIT] [--print]
+                       [--meter-host HOST] [--meter-unit UNIT] [--hex-url URL] [--print]
 
   --window MIN       minutes the strip reaches back (30..1440, default 360)
   --buckets N        cells per cloud agent (6..240, default 12)
@@ -145,7 +145,8 @@ clamp to the bounds above; an unrecognised flag is ignored rather than fatal,
 because a collector that exits leaves the widget with an empty strip.
 
 environment: BURNBAR_LOCAL_HOST, BURNBAR_METER_UNIT, BURNBAR_NO_LOCAL=1,
-             BURNBAR_LOCAL_LEDGER, GROK_HOME, BURNBAR_NOW_MS (tests pin the clock)
+             BURNBAR_LOCAL_LEDGER, BURNBAR_HEX_URL, GROK_HOME,
+             BURNBAR_NOW_MS (tests pin the clock)
 """
 
 # Before any argument is read or any state directory is touched, so that asking
@@ -160,6 +161,12 @@ BUCKETS = int_arg("--buckets", 12, 6, 240)
 BUCKET_MS = round(WINDOW_MIN * 60_000 / BUCKETS)
 METER_HOST = str_arg("--meter-host", os.environ.get("BURNBAR_LOCAL_HOST") or "localhost", 128)
 METER_UNIT = str_arg("--meter-unit", os.environ.get("BURNBAR_METER_UNIT") or "ollama-meter")
+# A shared Ollama box this machine only calls over HTTP (hex). Its tokens arrive
+# through the local-usage ledger; this URL is only used to ask what it has
+# resident right now. Empty = never touch the network for it.
+HEX_URL = str_arg("--hex-url", os.environ.get("BURNBAR_HEX_URL") or "", 256)
+if not HEX_URL.lower().startswith(("http://", "https://")):
+    HEX_URL = ""
 # Service passes --no-local when no compute GPU was found, so a GPU-less
 # laptop never ssh's to a host named nano that does not exist.
 NO_LOCAL = "--no-local" in sys.argv or os.environ.get("BURNBAR_NO_LOCAL") == "1"
@@ -184,7 +191,7 @@ t5 = now_ms - 5 * 60_000
 t60 = now_ms - 60 * 60_000
 
 buckets = [{"t": grid_start + i * BUCKET_MS, "claude": 0, "codex": 0, "grok": 0, "kimi": 0,
-            "zcode": 0, "local": 0}
+            "zcode": 0, "local": 0, "hex": 0}
            for i in range(BUCKETS)]
 
 
@@ -1361,6 +1368,10 @@ def valid_journal_entry(hit):
 
 
 local = Agent("local")
+# Calls to a shared Ollama box over HTTP (hex). Every such point is ALSO added
+# to `local`, which is what makes it count toward the offload share; this agent
+# only keeps hex's own numbers apart and is never added to all_burn.
+hex_box = Agent("hex")
 local_available = True
 local_reason = ""
 jhit = valid_journal_entry(cache.get(JOURNAL_KEY))
@@ -1463,6 +1474,8 @@ def ledger_extract(line, _state):
 for pt in scan(LOCAL_LEDGER, ledger_extract):
     try:
         local.add(pt)
+        if pt[3] == "hex" or pt[3].startswith("hex:"):
+            hex_box.add(pt)
     except Exception:
         continue
 if not err:
@@ -2240,6 +2253,70 @@ def safe_account(reader):
     return label, detail
 
 
+# ── what the hex box has resident right now ───────────────────────────────────
+# hex is a shared Ollama box this machine only calls over HTTP, so there is no
+# journal to read and nothing to ssh to (and nothing here may change it). Its
+# token counts come from the ledger above; this only asks /api/ps which model
+# is warm and how much memory it holds. One short GET, at most every 30 s
+# (the collector runs every few seconds), remembered in hex-probe.json so a
+# slow or unreachable box costs one timeout per half minute, not one per run.
+HEX_PROBE_FILE = OUT_DIR / "hex-probe.json"
+HEX_PROBE_TTL_MS = 30_000
+HEX_PROBE_TIMEOUT_S = 3
+hex_probe_fresh = False
+
+
+def fetch_hex_ps(url):
+    """(online, error, loaded) from one GET of /api/ps. Never raises."""
+    try:
+        req = urllib.request.Request(url.rstrip("/") + "/api/ps", headers={"Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=HEX_PROBE_TIMEOUT_S) as resp:
+            doc = json.loads(resp.read(256 * 1024).decode("utf-8", "replace"))
+    except urllib.error.HTTPError as e:
+        return False, "HTTP %d from the box" % e.code, []
+    except Exception as e:
+        reason = getattr(e, "reason", None) or e
+        return False, (str(reason) or type(e).__name__)[:120], []
+    rows = doc.get("models") if isinstance(doc, dict) else None
+    loaded = []
+    for m in (rows if isinstance(rows, list) else [])[:8]:
+        if not isinstance(m, dict):
+            continue
+        name = str(m.get("name") or m.get("model") or "").strip()[:64]
+        if not name:
+            continue
+        vram = m.get("size_vram")
+        ctx = m.get("context_length")
+        loaded.append({
+            "name": name,
+            "vramGb": round(vram / 1e9, 1) if isinstance(vram, (int, float)) and not isinstance(vram, bool)
+            and 0 <= vram < 1e13 else 0,
+            "context": ctx if isinstance(ctx, int) and not isinstance(ctx, bool) and 0 < ctx < 10_000_000 else 0,
+            "expiresAt": parse_iso_ms(m.get("expires_at")),
+        })
+    return True, "", loaded
+
+
+def hex_probe():
+    global hex_probe_fresh
+    if not HEX_URL:
+        return {"configured": False, "online": False, "error": "", "at": 0, "loaded": []}
+    try:
+        hit = json.loads(HEX_PROBE_FILE.read_text())
+        at = hit.get("at")
+        if (hit.get("url") == HEX_URL and isinstance(at, int) and not isinstance(at, bool)
+                and 0 <= now_ms - at < HEX_PROBE_TTL_MS and isinstance(hit.get("loaded"), list)):
+            return dict(hit, configured=True)
+    except Exception:
+        pass
+    online, error, loaded = fetch_hex_ps(HEX_URL)
+    hex_probe_fresh = True
+    return {"configured": True, "url": HEX_URL, "online": online, "error": error, "at": now_ms, "loaded": loaded}
+
+
+hex_state = hex_probe()
+hex_models = {(k[4:] if k.startswith("hex:") else k): v for k, v in hex_box.by_model.items()}
+
 refresh_kimi_plan()
 refresh_kimi_usage()
 PACE["samples"] = load_samples()
@@ -2270,6 +2347,10 @@ payload = {
     "local": dict(local.payload(), available=local_available, reason=local_reason,
                   host=METER_HOST, unit=METER_UNIT),
     "offloadShare": (local.total / all_burn) if all_burn > 0 else 0,
+    # hex's own numbers. Its tokens are already inside `local` and `offloadShare`
+    # above; `share` is just the part of everything burned that went to hex.
+    "hex": dict(hex_box.payload(), byModel=hex_models, share=(hex_box.total / all_burn) if all_burn > 0 else 0,
+                box={k: v for k, v in hex_state.items() if k != "url"}),
     # Which agents this machine actually uses. The strip hides the rest.
     "presence": {
         "claude": claude_present,
@@ -2329,6 +2410,12 @@ try:
     write_atomic(CACHE_FILE, json.dumps({"v": CACHE_VERSION, "files": next_cache}, allow_nan=False))
 except (OSError, ValueError):
     pass  # the cache is an optimisation; losing it only costs one slow run
+
+if hex_probe_fresh:
+    try:
+        write_atomic(HEX_PROBE_FILE, json.dumps(hex_state, allow_nan=False))
+    except (OSError, ValueError):
+        pass  # only costs one extra probe next run
 
 # The percentage samples the pace maths reads next run. Written after the
 # payload: a sample the widget never saw is worse than one written a tick late.

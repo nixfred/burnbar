@@ -535,6 +535,10 @@ BarWidget {
             ? "\n" + compact(svc.localTokensTotal) + " tokens / last " + span
               + "  ·  " + Math.round(svc.offloadShare * 100) + "% offloaded from frontier"
             : "")
+        + (svc.hexTurns > 0
+            ? "\nhex  ·  " + compact(svc.hexTotal) + " tokens in " + svc.hexTurns + " requests"
+              + (svc.hexBoxConfigured && !svc.hexBoxOnline ? "  ·  box unreachable" : "")
+            : "")
     return ""
   }
 

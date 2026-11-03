@@ -29,7 +29,8 @@
       "ai",
       "usage",
       "quota",
-      "grok"
+      "grok",
+      "hex"
     ],
     "allowMultiple": false,
     "defaultSection": "center",
@@ -53,7 +54,8 @@
       "emberFlicker": true,
       "sparks": true,
       "themeColors": true,
-      "showAccounts": true
+      "showAccounts": true,
+      "hexUrl": ""
     },
     "schema": [
       {
@@ -236,6 +238,13 @@
         "label": "Meter systemd unit",
         "description": "The ollama-meter unit on that box whose journal carries one line per request. Local token counts and the offload share come from there.",
         "defaultValue": "ollama-meter"
+      },
+      {
+        "key": "hexUrl",
+        "type": "string",
+        "label": "Shared Ollama box URL (hex)",
+        "description": "A shared Ollama box this machine only calls over HTTP, such as http://hex:11434. Its tokens are counted from the request log the calling wrapper writes and always count toward the offload share; this URL only lets Burn Bar ask the box which model is warm. Leave empty to never touch the network for it.",
+        "defaultValue": ""
       },
       {
         "key": "themeColors",

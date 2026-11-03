@@ -3,6 +3,19 @@
 ## Unreleased
 
 ### Added
+- **hex, the shared Ollama box, is accounted for.** Tokens a machine sends to a
+  shared Ollama box over HTTP never reach a journal Burn Bar can read, so they
+  were invisible and the offload share undercounted every request that went
+  there. The caller now appends a `"source": "hex"` line to `local-usage.jsonl`
+  (the same ledger the NPU embedder uses), and the collector counts it in the
+  local lane and the offload share once, and also reports it as its own `hex`
+  block. The cockpit shows a HEX line under the local tokens: tokens kept off
+  frontier, requests, prompt against generated, top model, and the share of all
+  burn. With **Shared Ollama box URL** (`hexUrl`) set, it also reads `/api/ps`
+  once per 30 s for the warm model, its memory and context, and says
+  unreachable in red when the box does not answer. The strip tooltip gains one
+  hex line. The URL is never written to `history.json`, and with no URL there is
+  no network access at all.
 - **Pace flames: the bar as an icon instead of an instrument.** `look: "flames"`
   (or **Pace flames** in SETUP) swaps the strip for one icon-sized flame per pace
   state. Red is going into debt, green is on pace, blue is more in the bank than

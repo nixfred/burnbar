@@ -2489,6 +2489,55 @@ Panel {
               }
             }
 
+            // ── hex: the shared box this machine calls over HTTP ────────────
+            // Its tokens are already inside the line above (they count toward
+            // the offload share); this breaks hex out so the number a frontier
+            // model did not have to burn is visible on its own. Hidden until
+            // hex has logged a request or Burn Bar was told where it lives.
+            readonly property bool hexShown: !!panel.svc && (panel.svc.hexTurns > 0 || panel.svc.hexBoxConfigured)
+            PanelSectionHeader {
+              visible: parent.hexShown
+              Layout.fillWidth: true
+              text: panel.svc
+                ? "HEX  ·  " + panel.widget.compact(panel.svc.hexTotal) + " TOKENS KEPT OFF FRONTIER"
+                  + (panel.svc.hexTurns > 0 ? "  ·  " + Math.round(panel.svc.hexShare * 100) + "% OF ALL BURN" : "")
+                : ""
+              foreground: panel.foreground
+              fontFamily: panel.fontFamily
+              elide: Text.ElideRight
+            }
+            Caption {
+              visible: parent.hexShown
+              Layout.fillWidth: true
+              wrapMode: Text.WordWrap
+              elide: Text.ElideNone
+              color: panel.svc && panel.svc.hexBoxConfigured && !panel.svc.hexBoxOnline ? Commons.Color.urgent : panel.dim
+              text: {
+                void panel.tick
+                var s = panel.svc
+                if (!s) return ""
+                var sp = s.hexSplit || {}
+                var top = panel.topModel(s.hexByModel)
+                var calls = s.hexTurns > 0
+                  ? s.hexTurns + (s.hexTurns === 1 ? " request" : " requests") + " · prompt " + panel.widget.compact(sp.input || 0)
+                    + " · generated " + panel.widget.compact(sp.output || 0)
+                    + (top !== "" ? " · mostly " + panel.plainText(top, 48) : "")
+                  : "no request logged yet in this window"
+                if (!s.hexBoxConfigured) return calls
+                if (!s.hexBoxOnline) return calls + " · box unreachable"
+                  + (s.hexBoxError !== "" ? ": " + panel.plainText(s.hexBoxError, 80) : "")
+                var warm = s.hexBoxLoaded || []
+                var names = []
+                for (var i = 0; i < warm.length && i < 3; i++)
+                  names.push(panel.plainText(warm[i].name, 40)
+                    + (warm[i].vramGb > 0 ? " " + Number(warm[i].vramGb).toFixed(1) + " GB" : ""))
+                return calls + " · " + (names.length
+                  ? "warm: " + names.join(" + ") + (warm.length > 3 ? " + " + (warm.length - 3) + " more" : "")
+                    + (warm.length === 1 && warm[0].context > 0 ? " · ctx " + warm[0].context : "")
+                  : "nothing warm")
+              }
+            }
+
             // Jetson telemetry, two across so every tile has room for its
             // unit and sub-line. A metric the board does not expose reads as
             // 0 and the tile hides its bar rather than drawing a full or

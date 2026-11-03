@@ -490,6 +490,29 @@ there, because the journal already counts them. `estimated` marks counts derived
 from words ×1.3 when the server reports no usage. Writers rotate the file to
 `.1` at 4 MB.
 
+**A shared Ollama box you only call over HTTP (hex)**: nothing to ssh to and no
+journal to read, and Ollama keeps no per-request count of its own, so the
+caller is the only place the numbers exist. Whatever calls the box appends the
+same ledger line with `"source": "hex"`, taking `prompt` and `output` from the
+`usage` block of each reply:
+
+```
+{"ts": 1793673727093, "source": "hex", "model": "chat", "prompt": 900, "output": 300}
+```
+
+Those tokens count toward the local lane and the offload share once, exactly as
+above, and the cockpit breaks them out on their own line under the local tokens:
+how many tokens hex took, how many requests, prompt against generated, the model
+used most, and the share of everything burned on this machine that went to it.
+`model` is whatever the caller asked for (an alias such as `chat` stays `chat`).
+Set **Shared Ollama box URL** (`hexUrl`, e.g. `http://hex:11434`) and Burn Bar
+also asks the box's `/api/ps` which model is warm and how much memory it holds:
+one GET, at most every 30 seconds, 3 second timeout, and the URL is never written
+to `history.json`. Left empty, Burn Bar never touches the network for it. A box
+that does not answer shows in red as unreachable, and the counts stay. The
+section appears once hex has logged a request or a URL is set, in the local
+column, so a machine with no discrete GPU does not show it.
+
 **On nano**: `./nano/install.sh [host]` installs, over ssh with passwordless
 sudo: the `ollama-meter` unit (DynamicUser, `0.0.0.0:11434` → `127.0.0.1:11435`);
 `ollama.service.d/zz-burnbar.conf`, which moves Ollama to loopback `:11435`

@@ -910,8 +910,8 @@ Panel {
   function hexHeader() {
     var s = svc
     if (!s) return ""
-    return "HEX  ·  " + widget.compact(s.hexTotal) + " TOKENS KEPT OFF FRONTIER"
-      + (s.hexTurns > 0 ? "  ·  " + Math.round(s.hexShare * 100) + "% OF ALL BURN" : "")
+    return "HEX  ·  " + widget.compact(s.hexTotal) + " OFF FRONTIER"
+      + (s.hexTurns > 0 ? "  ·  " + Math.round(s.hexShare * 100) + "% OF BURN" : "")
   }
   function hexDetail() {
     void tick

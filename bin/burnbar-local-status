@@ -25,6 +25,7 @@ import os
 import shutil
 import socket
 import subprocess
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -384,20 +385,58 @@ def parse_telemetry(text: str) -> dict:
     return fields
 
 
+def ollama_ticks(proc="/proc") -> int:
+    """utime + stime, in clock ticks, summed over every process named ollama.
+
+    Read in this process. The shell loop this replaced forked a `cat` for every
+    entry in /proc just to read its name (about 1,150 forks on a busy desktop,
+    twice a run, every five seconds): a few percent of a core to find one
+    process."""
+    total = 0
+    try:
+        names = os.listdir(proc)
+    except OSError:
+        return 0
+    for name in names:
+        if not name.isdigit():
+            continue
+        try:
+            with open("%s/%s/comm" % (proc, name)) as handle:
+                if handle.read().strip() != "ollama":
+                    continue
+            with open("%s/%s/stat" % (proc, name)) as handle:
+                stat = handle.read()
+        except OSError:
+            continue  # gone between the listing and the read
+        # The name sits in parentheses and may hold spaces, so count fields from
+        # the last ")": state is the first after it, utime and stime the 12th, 13th.
+        rest = stat.rpartition(")")[2].split()
+        try:
+            total += int(rest[11]) + int(rest[12])
+        except (IndexError, ValueError):
+            continue
+    return total
+
+
+def all_cpu_ticks(path="/proc/stat") -> int:
+    """Ticks every CPU has spent, user through softirq, from the first "cpu" line."""
+    try:
+        with open(path) as handle:
+            for line in handle:
+                if line.startswith("cpu "):
+                    return sum(int(value) for value in line.split()[1:8])
+    except (OSError, ValueError):
+        pass
+    return 0
+
+
 def local_ollama_cpu() -> float:
     """Share of CPU used by processes named ollama, sampled 200 ms apart."""
-    snippet = r'''
-ticks() { t=0; for p in /proc/[0-9]*; do [ "$(cat $p/comm 2>/dev/null)" = ollama ] || continue; set -- $(cat $p/stat 2>/dev/null); t=$((t + ${14:-0} + ${15:-0})); done; echo $t; }
-total() { set -- $(grep "^cpu " /proc/stat); echo $(($2+$3+$4+$5+$6+$7+$8)); }
-t1=$(ticks); c1=$(total); sleep 0.2; t2=$(ticks); c2=$(total)
-echo "cpu_ticks $((t2-t1)) $((c2-c1))"
-'''
-    try:
-        run = subprocess.run(["sh", "-c", snippet], capture_output=True, text=True, timeout=4)
-    except (OSError, subprocess.SubprocessError):
-        return 0.0
-    fields = parse_telemetry(run.stdout)
-    return float(fields.get("cpu") or 0.0)
+    mine1, everyone1 = ollama_ticks(), all_cpu_ticks()
+    time.sleep(0.2)
+    mine2, everyone2 = ollama_ticks(), all_cpu_ticks()
+    mine, everyone = max(0, mine2 - mine1), everyone2 - everyone1
+    return round(min(100.0, mine / everyone * 100.0), 1) if everyone > 0 else 0.0
 
 
 def nvidia_telemetry() -> tuple[dict, str]:

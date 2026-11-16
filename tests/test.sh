@@ -185,6 +185,24 @@ python3 -m unittest discover -s tests -p 'test_pace_math.py' -q >/dev/null \
   || fail "pace math tests"
 ok "pace: ratio, allowance, projection, dry time and back-on-pace arithmetic"
 
+# limit-samples.jsonl is read whole and rewritten on every 5-second tick, so its
+# size is the collector's CPU. A six-decimal mismatch once grew it to 40 MB and
+# 2.4 CPU-seconds a run; a poisoned file must heal and a quiet tick write nothing.
+python3 -m unittest discover -s tests -p 'test_limit_samples.py' -q >/dev/null \
+  || fail "limit samples tests"
+ok "limit samples: one line per window per gap, a poisoned file heals, a quiet tick writes nothing"
+
+# Ollama's CPU share came from a shell loop that forked `cat` per /proc entry:
+# 4.5 CPU-seconds a call on a busy desktop. It reads /proc in Python now.
+python3 -m unittest discover -s tests -p 'test_ollama_cpu_ticks.py' -q >/dev/null \
+  || fail "ollama cpu ticks tests"
+ok "ollama CPU share: read from /proc in-process, no fork, same arithmetic as the shell loop"
+
+# Kimi answered /usages with nothing for a month and was asked again every tick.
+python3 -m unittest discover -s tests -p 'test_kimi_backoff.py' -q >/dev/null \
+  || fail "kimi back-off tests"
+ok "kimi: an empty or failed answer waits five minutes instead of being asked every tick"
+
 # A plan change (SuperGrok Plus to Heavy) moves the percentage with no reset and
 # no spend. The plan is read from the billing log and named on the card, and the
 # week keeps its whole length instead of being re-based as a "gift" reset.

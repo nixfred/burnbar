@@ -134,6 +134,12 @@ class MeterUsageTests(unittest.TestCase):
 
     def test_records_survive_a_restart(self):
         self.post("chat", client="c")
+        # The meter finishes the reply and only then appends the record, so a
+        # SIGTERM on the reply's heels can beat the write (this test failed in
+        # about 3 of 8 suite runs). Wait for the record to be on disk first.
+        deadline = time.time() + 5
+        while time.time() < deadline and not (os.path.exists(self.file) and os.path.getsize(self.file) > 0):
+            time.sleep(0.02)
         self.stop()
         self.start()
         self.assertEqual(self.usage()["total"]["requests"], 1)

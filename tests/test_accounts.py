@@ -39,8 +39,9 @@ def load(home, state, now=1_000_000_000_000, urlopen=None):
     """The account readers from the collector, pointed at a scratch HOME."""
     tree = ast.parse(SRC)
     want_fn = {"clean_account", "read_json_object", "jwt_claims", "claude_account", "codex_account",
-               "grok_account", "kimi_account", "safe_account", "refresh_kimi_plan"}
-    want_const = {"ACCOUNT_MAX", "ACCOUNT_FILE_MAX", "KIMI_PLAN_TTL_MS"}
+               "grok_account", "kimi_account", "safe_account", "refresh_kimi_plan",
+               "kimi_recently_tried", "kimi_note_try"}
+    want_const = {"ACCOUNT_MAX", "ACCOUNT_FILE_MAX", "KIMI_PLAN_TTL_MS", "KIMI_RETRY_MS"}
     body = [n for n in tree.body
             if isinstance(n, (ast.Import, ast.ImportFrom))
             or (isinstance(n, ast.FunctionDef) and n.name in want_fn)

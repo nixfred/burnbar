@@ -1621,18 +1621,44 @@ def window_ms_for(label, resets_ms, prev_resets_ms):
     return 0
 
 
+# True when the last load_samples() saw lines the file should not keep: old,
+# malformed, or redundant. save_samples() rewrites only then.
+SAMPLES_DIRTY = False
+
+
+def thin_samples(points):
+    """Drop a sample that says nothing the last kept one did not: the same
+    window, the same percentage (the six places the file stores) and less than
+    SAMPLE_MIN_GAP_MS later. That is the cadence the writer means to keep, so a
+    file written by the old six-decimal mismatch (one line per tick) shrinks to
+    what it should have been, and a healthy file is left exactly as it is.
+    `points` is sorted oldest first."""
+    kept = []
+    for p in points:
+        if kept:
+            q = kept[-1]
+            if p[2] == q[2] and abs(p[1] - q[1]) <= 1e-9 and p[0] - q[0] < SAMPLE_MIN_GAP_MS:
+                continue
+        kept.append(p)
+    return kept
+
+
 def load_samples():
     """{key: [(ts, percent, resetsMs)]} oldest first, pruned to what can still
     be asked about. A malformed line is skipped, never fatal."""
+    global SAMPLES_DIRTY
+    SAMPLES_DIRTY = False
     out = {}
     try:
         data = SAMPLES_FILE.read_bytes()
     except OSError:
         return out
     floor = now_ms - SAMPLE_MAX_AGE_MS
+    lines = 0
     for raw in data.split(b"\n"):
         if not raw:
             continue
+        lines += 1
         try:
             rec = json.loads(raw)
             ts = int(rec["ts"])
@@ -1644,15 +1670,34 @@ def load_samples():
         if ts < floor or ts > now_ms + FUTURE_SLACK_MS or not (0 <= pct <= 1):
             continue
         out.setdefault(key, []).append((ts, pct, resets))
-    for v in out.values():
-        v.sort()
+    kept = 0
+    for key in out:
+        out[key].sort()
+        out[key] = thin_samples(out[key])
+        kept += len(out[key])
+    SAMPLES_DIRTY = kept != lines
     return out
 
 
 def save_samples():
-    """Rewrite the file with what was kept plus this run's new samples. It is
-    small (one line per window per 5 minutes) and rewriting keeps the prune
-    honest, so there is no cursor to get out of step."""
+    """Keep the file in step with what the pace maths saw plus this run's new
+    samples. The collector ticks every few seconds and almost every tick has
+    nothing to add, so the common case writes nothing, and a tick with a new
+    sample appends it. The whole file is rewritten only when the load found
+    something to drop (old, malformed or redundant lines), which keeps the
+    prune honest with no cursor to get out of step."""
+    if not SAMPLES_DIRTY:
+        if not PACE["next"]:
+            return
+        try:
+            # Only a file that is already there: the first one goes through
+            # write_atomic, which creates it 0600 like every other state file.
+            if SAMPLES_FILE.exists():
+                with open(SAMPLES_FILE, "a") as fh:
+                    fh.write("\n".join(PACE["next"]) + "\n")
+                return
+        except OSError:
+            pass  # fall through to a full rewrite, which also repairs the file
     lines = []
     for key, points in PACE["samples"].items():
         for ts, pct, resets in points:
@@ -1883,12 +1928,23 @@ def with_pace(agent_payload, agent_name):
         resets = window_id(parse_iso_ms(row.get("resetsAt")))
         if not isinstance(pct, (int, float)) or pct < 0 or not resets:
             continue
+        # A window that has already reset has nothing left to pace: a source
+        # that keeps restating it (Kimi's cached figures sat on 2026-10-19 for a
+        # month) would only add lines to a file that is read whole every tick.
+        if resets <= now_ms:
+            continue
         points = PACE["samples"].get(key) or []
         last = points[-1] if points else None
+        # The file stores six decimals, so that is what "unchanged" is measured
+        # against. Comparing the stored figure with the raw one called every
+        # tick a change for any percentage with more than six places (Grok's
+        # 93.286412...): 770 lines an hour for one window instead of 12, 354k of
+        # them in 19 days, read whole and rewritten on every tick.
+        stored = round(float(pct), 6)
         # One line per window per five minutes, plus every real change: the
         # collector ticks every few seconds and this file is read whole.
-        if last is None or last[2] != resets or abs(last[1] - pct) > 1e-9 or now_ms - last[0] >= SAMPLE_MIN_GAP_MS:
-            PACE["next"].append(json.dumps({"ts": now_ms, "key": key, "pct": round(float(pct), 6), "resets": resets}))
+        if last is None or last[2] != resets or abs(last[1] - stored) > 1e-9 or now_ms - last[0] >= SAMPLE_MIN_GAP_MS:
+            PACE["next"].append(json.dumps({"ts": now_ms, "key": key, "pct": stored, "resets": resets}))
     return agent_payload
 
 
@@ -1975,6 +2031,35 @@ def kimi_api_key():
 # Burn Bar re-probes Claude and Codex, not the tier's twice-a-day TTL.
 KIMI_USAGE_TTL_MS = 240 * 1000
 
+# A request that leaves nothing to cache (an error, or an answer with no quota
+# in it, which is what /usages gives a plan that has none) is not asked again
+# for this long. The TTLs above only count a request that WROTE a cache, so
+# without this every 5-second tick asked again: a blocking 0.9s call to
+# api.kimi.com, about 17,000 a day, against an answer that never changed. The
+# marker is its own file because the caches' measuredAt is shown as the age of
+# a figure, and an attempt that produced none must not make it look fresh.
+KIMI_RETRY_MS = 300 * 1000
+
+
+def kimi_recently_tried(name):
+    try:
+        return now_ms - int((OUT_DIR / (name + ".tried")).read_text()) < KIMI_RETRY_MS
+    except (OSError, ValueError):
+        return False
+
+
+def kimi_note_try(name, tried):
+    """Stamp that `name` was just asked for, or clear the stamp once it answered."""
+    path = OUT_DIR / (name + ".tried")
+    try:
+        if tried:
+            OUT_DIR.mkdir(parents=True, exist_ok=True)
+            path.write_text(str(now_ms))
+        else:
+            path.unlink(missing_ok=True)
+    except OSError:
+        pass
+
 
 def kimi_window_label(window):
     """"5-hour" from {duration: 300, timeUnit: TIME_UNIT_MINUTE}."""
@@ -2047,12 +2132,15 @@ def refresh_kimi_usage():
             return
     except (OSError, ValueError, TypeError):
         pass
+    if kimi_recently_tried("kimi-usage"):
+        return
     key = kimi_api_key()
     if not key:
         return
     base = (os.environ.get("KIMI_BASE_URL") or "https://api.kimi.com/coding/v1").rstrip("/")
     if not base.startswith(("http://", "https://")):
         return
+    kimi_note_try("kimi-usage", True)
     try:
         req = urllib.request.Request(base + "/usages",
                                      headers={"Authorization": "Bearer " + key})
@@ -2069,6 +2157,7 @@ def refresh_kimi_usage():
         with os.fdopen(fd, "w") as stream:
             stream.write(json.dumps({"limits": limits, "measuredAt": now_ms}))
         os.replace(tmp, path)
+        kimi_note_try("kimi-usage", False)
     except OSError:
         pass
 
@@ -2087,12 +2176,15 @@ def refresh_kimi_plan():
             return
     except (OSError, ValueError, TypeError):
         pass
+    if kimi_recently_tried("kimi-plan"):
+        return
     key = kimi_api_key()
     if not key:
         return
     base = (os.environ.get("KIMI_BASE_URL") or "https://api.kimi.com/coding/v1").rstrip("/")
     if not base.startswith(("http://", "https://")):
         return
+    kimi_note_try("kimi-plan", True)
     try:
         req = urllib.request.Request(base + "/me",
                                      headers={"Authorization": "Bearer " + key})
@@ -2111,6 +2203,7 @@ def refresh_kimi_plan():
         with os.fdopen(fd, "w") as stream:
             stream.write(json.dumps({"tier": tier, "account": account, "measuredAt": now_ms}))
         os.replace(tmp, path)
+        kimi_note_try("kimi-plan", False)
     except OSError:
         pass
 

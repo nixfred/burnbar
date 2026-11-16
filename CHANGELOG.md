@@ -37,6 +37,36 @@
   the cockpit keeps the configured bucket count.
 
 ### Fixed
+- **The collector no longer costs half a core.** On gus it took 2.4 CPU-seconds
+  every 5-second tick, round the clock, and `burnbar-local-status` took another
+  4.5. Three causes, found by profiling a real run (80% of it was one file):
+  - `limit-samples.jsonl` had grown to 40 MB (424,613 lines), and the collector
+    reads and rewrites the whole file every tick. The file stores each
+    percentage to six decimals but the "has it changed?" check compared the
+    stored figure with the raw one, so any percentage with more than six places
+    (Grok's 93.286412...) counted as a change on every tick: 770 lines an hour
+    for one window instead of 12, 354,000 of them in 19 days. The check now
+    compares like with like. A file the old code poisoned heals itself on the
+    first run (a sample repeating the last one's window and percentage within
+    five minutes is dropped, so 424,613 lines became 82,285 and 40 MB became
+    7.5 MB), and it is rewritten only when it has something to drop: an
+    ordinary tick with a new sample appends one line, and a tick with nothing
+    new writes nothing. A window that has already reset is no longer sampled
+    (Kimi's cached figures sat on 2026-10-19 for a month). One collector run is
+    now about 0.5 CPU-seconds instead of 2.4.
+  - Kimi's quota and plan were asked for on every tick whenever the answer left
+    nothing to cache (`/usages` replies `{}` for a plan with no quota, which is
+    what it had done since 2026-10-18; any error did the same): a blocking 0.9 s
+    HTTPS call to api.kimi.com about 17,000 times a day. An empty or failed ask
+    is now repeated after five minutes. The attempt is a marker file of its own,
+    so a cached figure's `measuredAt` is never refreshed by an ask that
+    produced nothing.
+  - `burnbar-local-status` measured Ollama's CPU share with a `sh -c` loop that
+    forked a `cat` for every entry in `/proc` to read its name (about 1,140
+    forks, twice a run): 4.5 CPU-seconds and 4.8 s of wall clock a call on a
+    busy desktop, past the call's own 4 s timeout, so the reading was often
+    lost as well as expensive. It walks `/proc` in Python now (0.04 s) and
+    returns the same arithmetic.
 - **Claude limits read "unknown" on Omarchy 4.5.** Omarchy 4.5 keys its Claude
   probe cache by the signed-in account (`claude-limits-<id>.json`) and puts the
   time of the last successful probe in the usage record itself
